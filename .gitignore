@@ -1,6 +1,33 @@
+# Dependencies & builds
 node_modules/
 .next/
+dist/
+build/
+out/
+
+# Python & Caches
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Environments & Large Models
 .env
+.env.local
+.env.*.local
+venv/
+.venv/
+env/
+voxa-env/
+model3/
+
+# Logs & OS artifacts
 *.log
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
