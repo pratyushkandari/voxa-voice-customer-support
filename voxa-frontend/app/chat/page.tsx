@@ -154,6 +154,7 @@ export default function ChatPage() {
     const text = textToSend || inputMessage;
     if (!text.trim()) return;
 
+    transcriptRef.current = '';
     const traceId = `trace-${Date.now()}`;
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -176,8 +177,6 @@ export default function ChatPage() {
       simulateLocalResponse(text, traceId);
     }
   };
-
-  const recognitionRef = useRef<any>(null);
 
   // Advanced Multi-Feature Scored Intent & Semantic Intelligence Engine
   const getDomainResponse = (query: string): string => {
@@ -415,52 +414,73 @@ export default function ChatPage() {
     });
   };
 
+  const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef<string>('');
+
   // Toggle Voice Recording with Real Web Speech Recognition
   const handleToggleVoice = async () => {
     if (isRecording) {
       // Stop recording
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.warn('Error stopping recognition:', e);
+        }
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          console.warn('Error stopping mediaRecorder:', e);
+        }
       }
       setIsRecording(false);
     } else {
       // Start Real Speech Recognition
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const SpeechRecognition = 
+        (window as any).SpeechRecognition || 
+        (window as any).webkitSpeechRecognition ||
+        (window as any).mozSpeechRecognition ||
+        (window as any).msSpeechRecognition;
 
       if (SpeechRecognition) {
         try {
           const recognition = new SpeechRecognition();
-          recognition.continuous = false;
+          recognition.continuous = true;
           recognition.interimResults = true;
           recognition.lang = 'en-US';
+          recognition.maxAlternatives = 1;
+          transcriptRef.current = '';
 
           recognition.onstart = () => {
             setIsRecording(true);
           };
 
           recognition.onresult = (event: any) => {
-            let transcript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              transcript += event.results[i][0].transcript;
+            let fullTranscript = '';
+            for (let i = 0; i < event.results.length; i++) {
+              fullTranscript += event.results[i][0].transcript;
             }
-            if (transcript) {
-              setInputMessage(transcript);
+            if (fullTranscript) {
+              transcriptRef.current = fullTranscript;
+              setInputMessage(fullTranscript);
             }
           };
 
           recognition.onerror = (event: any) => {
             console.warn('Speech recognition notice:', event.error);
-            setIsRecording(false);
+            if (event.error !== 'no-speech') {
+              setIsRecording(false);
+            }
           };
 
           recognition.onend = () => {
             setIsRecording(false);
-            const capturedText = inputMessage.trim();
+            const capturedText = (transcriptRef.current || '').trim();
             if (capturedText) {
               handleSendMessage(capturedText);
+              transcriptRef.current = '';
             }
           };
 
@@ -481,8 +501,10 @@ export default function ChatPage() {
           mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
           mediaRecorder.onstop = async () => {
             stream.getTracks().forEach((track) => track.stop());
-            if (inputMessage.trim()) {
-              handleSendMessage(inputMessage.trim());
+            const textToSubmit = (transcriptRef.current || inputMessage).trim();
+            if (textToSubmit) {
+              handleSendMessage(textToSubmit);
+              transcriptRef.current = '';
             } else {
               handleSendMessage("What is the status of order ORD-88412?");
             }
@@ -561,14 +583,23 @@ export default function ChatPage() {
             </div>
 
             {/* 3D Voice Orb */}
-            <VoiceOrb
-              isSpeaking={isSpeaking}
-              isListening={isRecording}
-              audioLevel={isRecording ? 0.8 : isSpeaking ? 0.6 : 0.1}
-            />
+            <div 
+              onClick={handleToggleVoice}
+              className="cursor-pointer transition-transform hover:scale-105 active:scale-95 group relative flex flex-col items-center mb-4"
+              title={isRecording ? "Click to stop listening" : "Click to speak"}
+            >
+              <VoiceOrb
+                isSpeaking={isSpeaking}
+                isListening={isRecording}
+                audioLevel={isRecording ? 0.8 : isSpeaking ? 0.6 : 0.1}
+              />
+              <span className="text-[10px] font-mono text-slate-400 group-hover:text-cyan-300 transition-colors mt-1">
+                {isRecording ? "🔴 Click Orb to Finish Speaking" : "🎙️ Click Orb to Speak"}
+              </span>
+            </div>
 
             {/* 60fps Audio Waveform */}
-            <div className="w-full mt-4">
+            <div className="w-full mt-2">
               <AudioWaveform isActive={isRecording || isSpeaking} />
             </div>
 
@@ -653,10 +684,15 @@ export default function ChatPage() {
               <input
                 type="text"
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
+                onChange={(e) => {
+                  setInputMessage(e.target.value);
+                  transcriptRef.current = e.target.value;
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Ask about orders, refunds, warranty or speak via microphone..."
-                className="flex-1 bg-slate-900/80 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder={isRecording ? "Listening... (speech will appear here in real-time)" : "Ask about orders, refunds, warranty or speak via microphone..."}
+                className={`flex-1 bg-slate-900/80 border rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-colors ${
+                  isRecording ? 'border-rose-500/80 shadow-inner shadow-rose-500/10' : 'border-slate-700/80 focus:border-indigo-500'
+                }`}
               />
 
               <button

@@ -15,7 +15,7 @@ export default function LandingPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/auth/guest-demo`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088'}/v1/auth/guest-demo`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -44,7 +44,7 @@ export default function LandingPage() {
     setError(null);
     try {
       const endpoint = isSignup ? '/v1/auth/signup' : '/v1/auth/login';
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${endpoint}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088'}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

@@ -47,7 +47,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     // Fetch live metrics if backend is running
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/admin/metrics`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088'}/v1/admin/metrics`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('voxa_token') || ''}`
       }
