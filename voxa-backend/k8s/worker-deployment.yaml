@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voxa-llm-worker
+  labels:
+    app: voxa-llm-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: voxa-llm-worker
+  template:
+    metadata:
+      labels:
+        app: voxa-llm-worker
+    spec:
+      containers:
+      - name: worker
+        image: voxa/worker:2.0.0
+        command: ["python", "-m", "workers.llm_worker"]
+        envFrom:
+        - configMapRef:
+            name: voxa-config
+        - secretRef:
+            name: voxa-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voxa-stt-worker
+  labels:
+    app: voxa-stt-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: voxa-stt-worker
+  template:
+    metadata:
+      labels:
+        app: voxa-stt-worker
+    spec:
+      containers:
+      - name: worker
+        image: voxa/worker:2.0.0
+        command: ["python", "-m", "workers.stt_worker"]
+        envFrom:
+        - configMapRef:
+            name: voxa-config
+        - secretRef:
+            name: voxa-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"

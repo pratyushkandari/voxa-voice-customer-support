@@ -1,0 +1,150 @@
+services:
+  # =======================================================
+  # 1. PostgreSQL 16 with pgvector extension
+  # =======================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: voxa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: voxa_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d voxa_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 2. Redis 7 (In-Memory Streams & Semantic Cache)
+  # =======================================================
+  redis:
+    image: redis:7-alpine
+    container_name: voxa-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 3. FastAPI Edge Gateway & WebSocket Ingress
+  # =======================================================
+  gateway:
+    build:
+      context: ./voxa-backend
+      dockerfile: Dockerfile.gateway
+    container_name: voxa-gateway
+    restart: unless-stopped
+    ports:
+      - "8088:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/voxa_db
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=voxa_super_secret_production_key_2026_jwt_token_auth
+      - ENVIRONMENT=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 4. Decoupled STT Worker (Faster-Whisper INT8)
+  # =======================================================
+  stt-worker:
+    build:
+      context: ./voxa-backend
+      dockerfile: Dockerfile.worker
+    image: voxa-worker:2.0.0
+    container_name: voxa-stt-worker
+    restart: unless-stopped
+    command: ["python", "-m", "workers.stt_worker"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - STT_MODEL_SIZE=base
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 5. Decoupled LLM Worker (Qwen2.5-0.5B + RAG + edge-tts)
+  # =======================================================
+  llm-worker:
+    image: voxa-worker:2.0.0
+    container_name: voxa-llm-worker
+    restart: unless-stopped
+    command: ["python", "-m", "workers.llm_worker"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/voxa_db
+      - REDIS_URL=redis://redis:6379/0
+      - LLM_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
+      - TTS_VOICE=en-US-AriaNeural
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 6. Prometheus Telemetry Exporter
+  # =======================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: voxa-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./voxa-backend/telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 7. Grafana SRE Live Dashboard
+  # =======================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: voxa-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - voxa-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  grafana_data:
+
+networks:
+  voxa-network:
+    driver: bridge
