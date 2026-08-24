@@ -1,17 +1,4 @@
 # Production Dockerfile for Decoupled AI Compute Workers (STT & LLM)
-FROM python:3.11-slim as builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -22,10 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /root/.local /root/.local
+COPY requirements.txt .
+
+# Install lightweight CPU-only torch first (~180MB instead of 2.8GB CUDA), then worker dependencies
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
 COPY . /app
 
-ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 
 CMD ["python", "-m", "workers.llm_worker"]
