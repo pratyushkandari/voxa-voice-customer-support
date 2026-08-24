@@ -100,15 +100,31 @@ services:
       - LLM_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
       - TTS_VOICE=en-US-AriaNeural
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - voxa-network
 
   # =======================================================
-  # 6. Prometheus Telemetry Exporter
+  # 6. Next.js 15 Frontend Web UI
+  # =======================================================
+  frontend:
+    build:
+      context: ./voxa-frontend
+      dockerfile: Dockerfile
+    container_name: voxa-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://20.219.35.189:8088
+    depends_on:
+      - gateway
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 7. Prometheus Telemetry Exporter
   # =======================================================
   prometheus:
     image: prom/prometheus:latest
@@ -122,7 +138,7 @@ services:
       - voxa-network
 
   # =======================================================
-  # 7. Grafana SRE Live Dashboard
+  # 8. Grafana SRE Live Dashboard
   # =======================================================
   grafana:
     image: grafana/grafana:latest
