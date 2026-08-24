@@ -73,7 +73,6 @@ services:
     build:
       context: ./voxa-backend
       dockerfile: Dockerfile.worker
-    image: voxa-worker:2.0.0
     container_name: voxa-stt-worker
     restart: unless-stopped
     command: ["python", "-m", "workers.stt_worker"]
@@ -90,7 +89,9 @@ services:
   # 5. Decoupled LLM Worker (Qwen2.5-0.5B + RAG + edge-tts)
   # =======================================================
   llm-worker:
-    image: voxa-worker:2.0.0
+    build:
+      context: ./voxa-backend
+      dockerfile: Dockerfile.worker
     container_name: voxa-llm-worker
     restart: unless-stopped
     command: ["python", "-m", "workers.llm_worker"]
