@@ -1,16 +1,4 @@
-# Multi-stage production build for FastAPI Edge Gateway
-FROM python:3.11-slim as builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements-gateway.txt requirements.txt
-RUN pip install --no-cache-dir --user -r requirements.txt
-
+# Production Dockerfile for FastAPI Edge Gateway (Optimized for CPU & Low Disk Footprint)
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -20,10 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /root/.local /root/.local
+COPY requirements-gateway.txt .
+
+# Install lightweight CPU-only torch first, then gateway dependencies
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements-gateway.txt
+
 COPY . /app
 
-ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
