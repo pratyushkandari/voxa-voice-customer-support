@@ -3,10 +3,12 @@
 import React, { useEffect, useRef } from 'react';
 
 interface AudioWaveformProps {
-  isActive: boolean;
+  isActive?: boolean;
+  isPlaying?: boolean;
 }
 
-export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive }) => {
+export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive, isPlaying }) => {
+  const active = isActive || isPlaying || false;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -17,7 +19,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive }) => {
 
     let animationId: number;
     let time = 0;
-    const barCount = 48;
+    const barCount = 42;
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -29,25 +31,29 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive }) => {
 
       for (let i = 0; i < barCount; i++) {
         let barHeight = 4;
-        if (isActive) {
+        if (active) {
           // Dynamic harmonic waveform calculation
-          const wave1 = Math.sin(i * 0.2 + time) * 20;
-          const wave2 = Math.cos(i * 0.35 - time * 1.2) * 15;
-          const wave3 = Math.sin(i * 0.1 + time * 0.5) * 10;
-          barHeight = Math.max(6, Math.abs(wave1 + wave2 + wave3) + 8);
+          const wave1 = Math.sin(i * 0.25 + time) * 16;
+          const wave2 = Math.cos(i * 0.4 - time * 1.1) * 12;
+          const wave3 = Math.sin(i * 0.15 + time * 0.6) * 8;
+          barHeight = Math.max(5, Math.abs(wave1 + wave2 + wave3) + 6);
         }
 
         const x = i * (barWidth + 2);
         const y = (height - barHeight) / 2;
 
         const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-        gradient.addColorStop(0, '#06b6d4'); // Cyan top
-        gradient.addColorStop(0.5, '#6366f1'); // Indigo middle
-        gradient.addColorStop(1, '#ec4899'); // Pink bottom
+        gradient.addColorStop(0, '#6366f1'); // Indigo top
+        gradient.addColorStop(0.5, '#06b6d4'); // Cyan middle
+        gradient.addColorStop(1, '#8b5cf6'); // Purple bottom
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, 3);
+        if (ctx.roundRect) {
+          ctx.roundRect(x, y, barWidth, barHeight, 2);
+        } else {
+          ctx.rect(x, y, barWidth, barHeight);
+        }
         ctx.fill();
       }
 
@@ -59,15 +65,15 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive }) => {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [isActive]);
+  }, [active]);
 
   return (
-    <div className="w-full flex items-center justify-center py-2">
+    <div className="w-full flex items-center justify-center py-1">
       <canvas
         ref={canvasRef}
-        width={360}
-        height={60}
-        className="w-full max-w-[340px] h-[50px] rounded-lg"
+        width={280}
+        height={40}
+        className="w-full max-w-[260px] h-[36px] rounded-lg"
       />
     </div>
   );
