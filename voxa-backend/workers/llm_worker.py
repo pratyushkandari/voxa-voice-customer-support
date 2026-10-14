@@ -81,9 +81,15 @@ class LLMWorker:
             # 1. Deterministic Intent Routing
             has_tool, tool_name, tool_args = self.detect_tool_call(prompt)
             if has_tool:
-                logger.info(f"🛠️ Executing Agentic Tool: {tool_name} with args {tool_args}")
+                parsed_uid = None
+                if user_id and user_id != "guest":
+                    try:
+                        parsed_uid = uuid.UUID(str(user_id))
+                    except (ValueError, TypeError):
+                        parsed_uid = None
+
                 async with AsyncSessionLocal() as db:
-                    tool_result = await execute_tool_call(tool_name, tool_args, uuid.UUID(user_id) if user_id and user_id != "guest" else None, db)
+                    tool_result = await execute_tool_call(tool_name, tool_args, parsed_uid, db)
                 
                 if tool_name == "lookup_order":
                     response_text = f"Order {tool_result.get('order_id')} is currently {tool_result.get('status')}. Tracking number: {tool_result.get('tracking_number')}."

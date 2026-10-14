@@ -52,6 +52,7 @@ services:
     container_name: voxa-gateway
     restart: unless-stopped
     ports:
+      - "8000:8000"
       - "8088:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/voxa_db
@@ -118,7 +119,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://20.219.35.189:8088
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8088}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8088}
     depends_on:
       - gateway
     networks:
