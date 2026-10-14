@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -18,8 +18,7 @@ class UserResponse(BaseModel):
     role: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -48,8 +47,7 @@ class MessageSchema(BaseModel):
     total_latency_ms: Optional[int] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ConversationSchema(BaseModel):
     id: UUID
@@ -57,8 +55,7 @@ class ConversationSchema(BaseModel):
     created_at: datetime
     messages: List[MessageSchema] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ----------------- Telemetry HUD Schemas -----------------
 class TelemetryData(BaseModel):
@@ -94,8 +91,7 @@ class TicketResponse(BaseModel):
     status: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ----------------- Feedback Schemas -----------------
 class FeedbackCreate(BaseModel):
@@ -109,8 +105,7 @@ class FeedbackResponse(BaseModel):
     score: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ----------------- Admin SRE Schemas -----------------
 class AdminMetricsResponse(BaseModel):

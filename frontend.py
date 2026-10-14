@@ -13,19 +13,31 @@ import streamlit as st
 import requests
 
 # whisper is OpenAI's library for speech-to-text (transcription)
-import whisper
+try:
+    import whisper
+except ImportError:
+    whisper = None
 
 # pyaudio is used to access the system microphone and record voice
-import pyaudio
+try:
+    import pyaudio
+except ImportError:
+    pyaudio = None
 
 # wave module is used to handle WAV audio files (like saving mic recordings)
 import wave
 
 # gTTS (Google Text-to-Speech) converts text into audio
-from gtts import gTTS
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 
 # pygame is used to play audio (MP3) inside the Streamlit app
-import pygame
+try:
+    import pygame
+except ImportError:
+    pygame = None
 
 # uuid helps generate unique filenames so audio files don’t conflict
 import uuid

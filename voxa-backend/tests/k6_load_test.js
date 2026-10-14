@@ -14,7 +14,7 @@ export const options = {
 };
 
 export default function () {
-  const url = 'ws://localhost:8000/v1/ws/stream';
+  const url = __ENV.WS_URL || 'ws://localhost:8000/v1/ws/stream';
   const params = { tags: { my_tag: 'voxa_ws_client' } };
 
   const res = ws.connect(url, params, function (socket) {
