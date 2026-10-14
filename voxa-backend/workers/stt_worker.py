@@ -1,3 +1,4 @@
+import os
 import asyncio
 import base64
 import io
@@ -40,12 +41,22 @@ class STTWorker:
         if not self.model:
             return "What is your return and refund policy?"
             
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as temp_audio:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            temp_path = temp_audio.name
             temp_audio.write(audio_bytes)
             temp_audio.flush()
-            segments, info = self.model.transcribe(temp_audio.name, beam_size=2)
+            temp_audio.close()
+
+        try:
+            segments, info = self.model.transcribe(temp_path, beam_size=2)
             transcription = " ".join([segment.text for segment in segments]).strip()
             return transcription
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
     async def run(self):
         redis = aioredis.from_url(self.redis_url, decode_responses=True)

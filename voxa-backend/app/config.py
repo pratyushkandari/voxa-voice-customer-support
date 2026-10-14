@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -32,8 +32,6 @@ class Settings(BaseSettings):
     STREAM_LLM_INFERENCE: str = "stream:llm:inference"
     STREAM_DLQ: str = "stream:dead:letter:queue"
     
-    class Config:
-        env_file = ".env"
-        extra = "allow"
+    model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
 settings = Settings()

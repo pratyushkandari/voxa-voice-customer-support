@@ -1,3 +1,4 @@
+import asyncio
 import time
 import json
 import uuid
@@ -46,6 +47,7 @@ from app.circuit_breaker import circuit_breaker
 from app.rag_engine import rag_engine
 from app.agent_tools import lookup_order, check_refund_eligibility, escalate_to_human
 from app.queue_manager import queue_manager
+from app.seed_data import seed_database
 from app.telemetry import (
     TelemetryMiddleware,
     get_prometheus_metrics,
@@ -62,7 +64,14 @@ logger = logging.getLogger("voxa.gateway")
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Voxa 2.0 Edge Gateway...")
     await init_db()
-    await queue_manager.init_consumer_groups()
+    try:
+        await seed_database()
+    except Exception as e:
+        logger.warning(f"Database auto-seeding notice: {e}")
+    try:
+        await queue_manager.init_consumer_groups()
+    except Exception as e:
+        logger.warning(f"Redis consumer groups initialization notice: {e}")
     yield
     logger.info("🛑 Shutting down Voxa 2.0 Edge Gateway...")
 
@@ -239,7 +248,7 @@ async def chat_completions(
                 "trace_id": trace_id
             }
             yield f"data: {json.dumps(payload)}\n\n"
-            time.sleep(0.05)
+            await asyncio.sleep(0.05)
 
         total_latency = int((time.time() - start_time) * 1000)
         final_answer = "".join(full_response)
@@ -427,7 +436,7 @@ async def websocket_stream(websocket: WebSocket):
                         "ttft_ms": ttft_ms,
                         "trace_id": trace_id
                     })
-                    time.sleep(0.03)
+                    await asyncio.sleep(0.03)
 
                 await websocket.send_json({
                     "type": "token_chunk",
