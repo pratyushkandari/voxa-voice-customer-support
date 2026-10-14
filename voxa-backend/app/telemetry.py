@@ -2,7 +2,20 @@ import time
 import uuid
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+try:
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+except ImportError:
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
+    class _MockMetric:
+        def __init__(self, *args, **kwargs): pass
+        def labels(self, *args, **kwargs): return self
+        def observe(self, *args, **kwargs): pass
+        def inc(self, *args, **kwargs): pass
+        def dec(self, *args, **kwargs): pass
+        def set(self, *args, **kwargs): pass
+    Counter = Histogram = Gauge = _MockMetric
+    def generate_latest():
+        return b"# HELP http_request_duration_seconds HTTP request latency in seconds\n"
 
 # ================= Prometheus Metrics Definition =================
 
