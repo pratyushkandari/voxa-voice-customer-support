@@ -1,25 +1,28 @@
-# ============================
-# BACKEND: Flask API (backend.py)
-# ============================
+"""
+Voxa V1 Exploratory Prototype: Flask Seq2Seq Inference Server.
+
+Historical context:
+This module represents the initial V1 monolithic prototype for evaluating 
+FLAN-T5 Seq2Seq text generation prior to the V2 distributed streaming architecture.
+"""
 
 import os
+import logging
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("voxa.v1.backend")
+
 app = Flask(__name__)
 
-# ----------------------------
-# Load Model and Tokenizer
-# ----------------------------
-# Check if fine-tuned local weights exist, else fallback to base FLAN-T5
-local_dir = "model3"
-if os.path.exists(local_dir):
-    model_path = local_dir
-    print(f"Loading custom fine-tuned model from: {model_path}")
-else:
-    model_path = "google/flan-t5-base"
-    print(f"Local checkpoint '{local_dir}' not found. Falling back to public model: {model_path}")
+# Model Checkpoint Resolution
+LOCAL_CHECKPOINT = "model3"
+DEFAULT_MODEL = "google/flan-t5-base"
+
+model_path = LOCAL_CHECKPOINT if os.path.exists(LOCAL_CHECKPOINT) else DEFAULT_MODEL
+logger.info(f"Initializing Seq2Seq model from: {model_path}")
 
 try:
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -27,68 +30,54 @@ try:
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    print(f"Model loaded successfully on device: {device}")
-except Exception as e:
-    print(f"Warning: Could not pre-load model ({e}). Server will provide fallback responses.")
+    logger.info(f"Inference engine ready on compute device: {device}")
+except Exception as exc:
+    logger.warning(f"Could not initialize model ({exc}). Activating deterministic fallback.")
     tokenizer = None
     model = None
     device = torch.device("cpu")
 
-# ----------------------------
-# Define API Endpoint "/chat"
-# ----------------------------
+
 @app.route("/chat", methods=["POST"])
 def chat():
-    print("Received /chat request")
+    """
+    Synchronous inference endpoint for exploratory chat evaluations.
+    Applies bounded nucleus sampling with repetition penalties to constrain p99 tail latency.
+    """
+    payload = request.get_json(silent=True) or {}
+    user_input = payload.get("message", "").strip()
 
-    # Extract user message from the POST request's JSON payload
-    user_input = request.json.get("message", "")
-    print(f"User input received: {user_input}")
+    if not user_input:
+        return jsonify({"error": "Empty message payload"}), 400
 
-    # Add context to the user input to guide the model for helpful & friendly responses
     prompt = f"You are a helpful and friendly customer support assistant. Answer the customer query: {user_input}"
 
-    # Check if model is loaded
+    # Deterministic fallback when checkpoint is not loaded in host environment
     if not model or not tokenizer:
         return jsonify({
             "response": f"Voxa Support (Echo Mode): Thank you for your inquiry regarding '{user_input}'. "
                         f"Standard return window is 30 days and orders deliver in 3-5 days."
         })
 
-    # Tokenize the prompt and move tokens to the appropriate device (CPU/GPU)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    print("Input tokenized and moved to device")
+    
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs.input_ids,
+            max_new_tokens=128,
+            do_sample=True,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.9,
+            repetition_penalty=1.2,
+            num_return_sequences=1
+        )
 
-    # Generate a response using the model
-    # - max_new_tokens limits output length to keep replies concise
-    # - do_sample=True enables randomness for more natural and varied replies
-    # - temperature controls creativity (0.7 is moderate creativity)
-    # - top_k and top_p apply nucleus sampling to limit token choices, improving relevance
-    # - repetition_penalty discourages repeated phrases to avoid boring output
-    # - num_return_sequences=1 means generate a single response
-    outputs = model.generate(
-        inputs.input_ids,
-        max_new_tokens=128,
-        do_sample=True,
-        temperature=0.7,
-        top_k=50,
-        top_p=0.9,
-        repetition_penalty=1.2,
-        num_return_sequences=1
-    )
-    print("Model generation complete")
-
-    # Decode the output tokens back to human-readable text, skipping special tokens
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    print(f"Response generated: {response}")
-
-    # Return the generated response as a JSON object
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
     return jsonify({"response": response})
 
-# ----------------------------
-# Run Flask server on port 5000
-# ----------------------------
-if __name__== "__main__":
-    print("Starting Flask server on port 5000...")
-    # threaded=True allows handling multiple requests concurrently
-    app.run(port=5000, threaded=True)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting V1 prototype Flask server on port {port}...")
+    app.run(host="0.0.0.0", port=port, threaded=True)

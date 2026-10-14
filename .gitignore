@@ -27,7 +27,9 @@ model3/
 
 # Logs & OS artifacts
 *.log
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+

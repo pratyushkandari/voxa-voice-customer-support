@@ -291,5 +291,6 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 ---
 
 <div align="center">
-<sub>Engineered by <b>Pratyush Kandari</b> • Built for High-Throughput, Low-Latency SDE-1 Engineering</sub>
+<sub>Engineered by <b>Pratyush Kandari</b> • Production-Grade Distributed Voice & Real-Time AI Systems Architecture</sub>
 </div>
+
