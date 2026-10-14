@@ -1,267 +1,201 @@
-# ------------------------------- IMPORTS -------------------------------
+"""
+Voxa V1 Exploratory Prototype: Streamlit Voice/Text Interactive UI.
 
-# Import time module to create delays and wait during audio playback
-import time
+Historical context:
+Demonstrates initial client-side voice capture, local Whisper transcription,
+and gTTS playback connecting to the synchronous V1 Flask inference server.
+"""
 
-# os module lets us interact with the file system (e.g., save/delete audio files)
 import os
-
-# Streamlit is used to create interactive web apps in Python
+import time
+import uuid
+import wave
+import requests
 import streamlit as st
 
-# requests is used to send HTTP requests to backend (Flask server in our case)
-import requests
-
-# whisper is OpenAI's library for speech-to-text (transcription)
+# Optional native multimedia bindings
 try:
     import whisper
 except ImportError:
     whisper = None
 
-# pyaudio is used to access the system microphone and record voice
 try:
     import pyaudio
 except ImportError:
     pyaudio = None
 
-# wave module is used to handle WAV audio files (like saving mic recordings)
-import wave
-
-# gTTS (Google Text-to-Speech) converts text into audio
 try:
     from gtts import gTTS
 except ImportError:
     gTTS = None
 
-# pygame is used to play audio (MP3) inside the Streamlit app
 try:
     import pygame
 except ImportError:
     pygame = None
 
-# uuid helps generate unique filenames so audio files don’t conflict
-import uuid
+# Streamlit Page Configuration
+st.set_page_config(page_title="Voxa Support Prototype (V1)", page_icon="🎙", layout="centered")
 
-# ------------------------------- STREAMLIT UI SETUP -------------------------------
-
-# Configure the Streamlit page (title, layout)
-st.set_page_config(page_title="Voxa Chatbot", layout="centered")
-
-# Inject custom HTML/CSS into Streamlit for styling the UI elements
 st.markdown(
     """
     <style>
-    html, body, [class*="css"]  {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        overflow: auto;
-    }
-
-    .main {
-        background-color: #f4f6f7;
-        padding: 1.5rem 2rem;
-    }
-
+    .main { background-color: #0d1117; color: #c9d1d9; }
     .stButton button {
-        background-color: #4CAF50;
-        color: white;
-        border: none;
-        padding: 8px 18px;
-        border-radius: 8px;
-        font-size: 0.95rem;
+        background-color: #238636;
+        color: #ffffff;
+        border: 1px solid rgba(240, 246, 252, 0.1);
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-weight: 600;
+        transition: background-color 0.2s ease;
     }
-
+    .stButton button:hover { background-color: #2ea043; }
     .stTextInput input {
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-    }
-
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
+        border-radius: 6px;
+        border: 1px solid #30363d;
+        background-color: #161b22;
+        color: #f0f6fc;
     }
     </style>
     """,
-    unsafe_allow_html=True  # Allows HTML/CSS to be safely rendered
+    unsafe_allow_html=True
 )
 
-# ------------------------------- HEADER SECTION -------------------------------
-
-# Title of the app
-st.title("🤖 Voxa - Your AI Customer Support Assistant")
-
-# Small description text below the title
-st.markdown("##### Ask anything via **voice** or **text** — Voxa's got your back!")
-
-# Horizontal divider line
+st.title("🎙 Voxa - Voice Support Assistant (V1 Prototype)")
+st.caption("Synchronous speech-to-text, Seq2Seq generation, and speech synthesis prototype.")
 st.divider()
 
-# ------------------------------- SESSION STATE -------------------------------
-
-# Save user input in session state so it persists between re-renders
+# Session State Initialization
 if "user_input" not in st.session_state:
     st.session_state.user_input = ""
-
-# Store any voice-related errors to show to the user
 if "voice_error" not in st.session_state:
     st.session_state.voice_error = None
 
-# ------------------------------- VOICE RECORDING SECTION -------------------------------
 
-# Function to record user's voice through microphone and save it as a WAV file
-def record_audio(filename="input.wav", duration=10, rate=16000):
-    chunk = 1024  # Size of each audio frame
-    format = pyaudio.paInt16  # Audio format (16-bit)
-    channels = 1  # Mono recording
-    p = pyaudio.PyAudio()  # Initialize pyaudio
+def record_audio(filename: str = "input.wav", duration: int = 10, rate: int = 16000) -> str | None:
+    """Captures single-channel PCM audio from the system microphone."""
+    if not pyaudio:
+        st.session_state.voice_error = "PyAudio is not installed or microphone hardware is unavailable."
+        return None
+
+    chunk = 1024
+    audio_format = pyaudio.paInt16
+    channels = 1
+    p = pyaudio.PyAudio()
 
     try:
-        # Open audio stream to record from the mic
-        stream = p.open(format=format,
-                        channels=channels,
-                        rate=rate,
-                        input=True,
-                        frames_per_buffer=chunk)
+        stream = p.open(format=audio_format, channels=channels, rate=rate, input=True, frames_per_buffer=chunk)
+        st.info("🎙 Recording active... Speak now.")
+        frames = [stream.read(chunk) for _ in range(0, int(rate / chunk * duration))]
+        st.success("Recording complete.")
 
-        st.info("🎙 Recording... Please speak clearly into your mic.")
-        frames = []  # List to hold recorded audio frames
-
-        # Record for 'duration' seconds
-        for _ in range(0, int(rate / chunk * duration)):
-            data = stream.read(chunk)  # Read audio chunk from mic
-            frames.append(data)  # Append to list
-
-        st.success("✅ Recording complete!")
-
-        # Stop and close audio stream
         stream.stop_stream()
         stream.close()
         p.terminate()
 
-        # Save the recorded frames to a .wav file
-        wf = wave.open(filename, 'wb')
-        wf.setnchannels(channels)
-        wf.setsampwidth(p.get_sample_size(format))
-        wf.setframerate(rate)
-        wf.writeframes(b''.join(frames))  # Write all frames into file
-        wf.close()
+        with wave.open(filename, "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(p.get_sample_size(audio_format))
+            wf.setframerate(rate)
+            wf.writeframes(b"".join(frames))
 
-        return filename  # Return the path to saved audio
-
-    except Exception as e:
-        # Handle microphone-related errors
-        st.session_state.voice_error = f"🎤 Microphone error: {e}"
+        return filename
+    except Exception as exc:
+        st.session_state.voice_error = f"Audio capture exception: {exc}"
         return None
 
-# Function to convert recorded voice into text using Whisper
-def transcribe_with_whisper(audio_path):
+
+def transcribe_with_whisper(audio_path: str) -> str:
+    """Transcribes an audio waveform file using OpenAI Whisper."""
+    if not whisper:
+        return "[ERROR] Whisper library not loaded in runtime."
     try:
-        model = whisper.load_model("small")  # Load Whisper model (small size)
-        result = model.transcribe(audio_path)  # Transcribe audio file
-        return result["text"]  # Return just the transcribed text
-    except Exception as e:
-        return f"[ERROR] Whisper failed: {e}"  # Return error if any
+        model = whisper.load_model("small")
+        result = model.transcribe(audio_path)
+        return result.get("text", "").strip()
+    except Exception as exc:
+        return f"[ERROR] Transcription failed: {exc}"
 
-# ------------------------------- VOICE UI INTERACTION -------------------------------
 
-# Display voice section for users who want to speak instead of type
-st.markdown("🎤 **Prefer speaking? Use the button below:**")
+def speak(text: str) -> None:
+    """Synthesizes text to speech using gTTS and plays through pygame mixer."""
+    if not gTTS or not pygame:
+        return
+    filename = f"voxa_{uuid.uuid4().hex[:8]}.mp3"
+    try:
+        tts = gTTS(text=text, lang="en")
+        tts.save(filename)
 
-# Record voice when button is clicked
-if st.button("🎙 Speak Your Question (10 sec)"):
-    audio_path = record_audio(duration=10)  # Record 10 sec audio
-    if audio_path and os.path.exists(audio_path):  # Check if recording succeeded
-        transcription = transcribe_with_whisper(audio_path)  # Transcribe audio
-        if not transcription.startswith("[ERROR]"):  # Check if transcription succeeded
-            st.session_state.user_input = transcription  # Store user input
-            st.success(f"🗣 You said: **{transcription}**")  # Show what user said
-            st.session_state.voice_error = None  # Clear errors
+        pygame.mixer.init()
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.05)
+
+        pygame.mixer.music.unload()
+        pygame.mixer.quit()
+    except Exception as exc:
+        st.error(f"Speech playback error: {exc}")
+    finally:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
+
+
+# Voice Ingestion Control
+st.subheader("Voice Input")
+if st.button("🎙 Record Voice Input (10s)"):
+    audio_path = record_audio(duration=10)
+    if audio_path and os.path.exists(audio_path):
+        transcription = transcribe_with_whisper(audio_path)
+        if not transcription.startswith("[ERROR]"):
+            st.session_state.user_input = transcription
+            st.success(f"Transcribed: {transcription}")
+            st.session_state.voice_error = None
         else:
-            st.session_state.voice_error = transcription  # Save transcription error
-        os.remove(audio_path)  # Delete temporary audio file
-    else:
-        st.session_state.voice_error = "❌ Audio recording failed. Please try again with a working mic."
+            st.session_state.voice_error = transcription
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
 
-# Show any microphone or transcription errors
 if st.session_state.voice_error:
     st.error(st.session_state.voice_error)
 
-# ------------------------------- TEXT INPUT UI -------------------------------
-
-# Display input box for users who prefer typing
-st.markdown("📝 **Or type your question below:**")
+# Text Query Control
+st.subheader("Text Input")
 st.session_state.user_input = st.text_input(
-    "Type your question here...",  # Label
-    st.session_state.user_input,   # Default value
-    placeholder="e.g. What is your return policy?"  # Greyed out hint
+    "Customer Support Query",
+    value=st.session_state.user_input,
+    placeholder="e.g. How can I initiate a return for my order?"
 )
 
-# ------------------------------- TEXT-TO-SPEECH PLAYBACK -------------------------------
-
-# Function to convert text to speech and play it using gTTS + pygame
-def speak(text):
-    try:
-        filename = f"voxa_{uuid.uuid4()}.mp3"  # Create a unique MP3 filename
-        tts = gTTS(text=text, lang='en')  # Convert text to speech using gTTS
-        tts.save(filename)  # Save MP3 file
-
-        pygame.mixer.init()  # Initialize audio mixer
-        pygame.mixer.music.load(filename)  # Load MP3 file
-        pygame.mixer.music.play()  # Start playing
-
-        # Wait while audio is playing
-        while pygame.mixer.music.get_busy():
-            time.sleep(0.1)
-
-        pygame.mixer.music.unload()  # Unload current audio
-        pygame.mixer.quit()  # Quit mixer
-
-        os.remove(filename)  # Delete audio file after playing
-
-    except Exception as e:
-        st.error(f"🔊 TTS Playback failed: {e}")  # Show error if any
-
-# ------------------------------- API INTERACTION + TTS OUTPUT -------------------------------
-
-# When user clicks on "Get Answer"
-if st.button("💬 Get Answer"):
-    if st.session_state.user_input.strip() == "":  # Check for empty input
-        st.warning("⚠️ Please enter or speak a valid question.")
+# Inference Request Dispatch
+if st.button("Submit Query"):
+    query_text = st.session_state.user_input.strip()
+    if not query_text:
+        st.warning("Please supply a valid query via microphone or text input.")
     else:
-        # Show spinner while processing
-        with st.spinner("🤖 Voxa is processing your question..."):
+        with st.spinner("Dispatching to V1 inference runtime..."):
+            backend_url = os.environ.get("BACKEND_URL", "http://localhost:5000/chat")
             try:
-                # Send user's question to backend Flask API
-                response = requests.post(
-                    "http://localhost:5000/chat",  # Local Flask server URL
-                    json={"message": st.session_state.user_input},  # Send question as JSON
-                    timeout=60  # Timeout after 60 seconds
-                )
-
-                # Parse response from backend
-                result = response.json()["response"]
-                st.success("🤖 Voxa says:")  # Header
-                st.markdown(f"**💡 {result}**")  # Show the answer in bold
-                st.info(f"🧠 Token count: {len(result.split())} words")  # Show word count
-
-                speak(result)  # Read the answer aloud
-
+                resp = requests.post(backend_url, json={"message": query_text}, timeout=30)
+                resp.raise_for_status()
+                result_text = resp.json().get("response", "")
+                
+                st.markdown(f"**Response:** {result_text}")
+                speak(result_text)
             except requests.exceptions.ConnectionError:
-                st.error("❌ Could not connect to backend server. Is it running?")
+                st.error(f"Could not connect to inference host at {backend_url}. Verify backend.py is active.")
             except requests.exceptions.Timeout:
-                st.error("⏱ Request timed out. The server may be slow or busy.")
-            except Exception as e:
-                st.error(f"⚠️ Unexpected error: {e}")
+                st.error("Request timed out during model inference.")
+            except Exception as exc:
+                st.error(f"Inference gateway error: {exc}")
 
-# ------------------------------- FOOTER -------------------------------
-
-# Add footer at the bottom of the page
 st.divider()
-st.markdown("""
-<p style='text-align: center;'>
-Made with ❤️ by the <strong>Voxa Team</strong><br>
-<span style='font-size: 0.9em;'>Powered by FLAN-T5, Streamlit, Flask, Whisper & gTTS</span>
-</p>
-""", unsafe_allow_html=True)
+st.caption("Voxa Architecture Evolution • V1 Synchronous Prototype • For production workloads, deploy Voxa 2.0 (FastAPI + Redis Streams + Next.js)")
+

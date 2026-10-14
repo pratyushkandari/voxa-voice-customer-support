@@ -145,7 +145,7 @@ async def login(user_in: UserLogin, db: AsyncSession = Depends(get_db)):
 
 @app.post("/v1/auth/guest-demo", response_model=TokenResponse, tags=["Authentication"])
 async def guest_demo_login(db: AsyncSession = Depends(get_db)):
-    """1-Click instant guest login for recruiters and demo evaluators."""
+    """Generates ephemeral guest credentials for synthetic test harnesses and sandboxed evaluation."""
     user, token = await create_guest_user(db)
     return {"access_token": token, "token_type": "bearer", "user": user}
 
