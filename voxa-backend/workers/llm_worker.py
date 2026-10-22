@@ -98,10 +98,30 @@ class LLMWorker:
                 else:
                     response_text = f"I have escalated your request to a human supervisor (Ticket ID: {tool_result.get('ticket_id')}). Priority: {tool_result.get('priority')}."
             else:
-                # 2. General RAG Response
-                response_text = f"Based on Voxa's policy: You can request refunds within 30 days. For shipping, domestic orders arrive in 3-5 days. Let me know if you need help with a specific order ID!"
+                # 2. Dynamic RAG Knowledge Base Retrieval & Synthesis
+                async with AsyncSessionLocal() as db:
+                    rag_docs = await rag_engine.search_knowledge_base(prompt, db, limit=2)
+                    if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
+                        response_text = f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
+                    else:
+                        response_text = (
+                            "Thank you for contacting Voxa support! All purchases include a 30-day "
+                            "money-back guarantee and 1-year manufacturer warranty. Domestic orders arrive in "
+                            "3 to 5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
+                        )
 
-            # 3. Stream tokens to Redis Pub/Sub
+            # 3. Trigger TTS Audio Synthesis if requested (Voice Pipeline)
+            if payload.get("origin") == "audio" or payload.get("needs_audio") == "true":
+                try:
+                    await redis.xadd("stream:tts:synthesize", {
+                        "session_id": session_id,
+                        "text": response_text,
+                        "trace_id": trace_id
+                    })
+                except Exception as tts_err:
+                    logger.warning(f"Could not enqueue TTS synthesis task: {tts_err}")
+
+            # 4. Stream tokens to Redis Pub/Sub
             tokens = response_text.split(" ")
             first_token = True
             ttft_ms = 0
@@ -113,6 +133,7 @@ class LLMWorker:
                     first_token = False
                     
                 chunk_payload = json.dumps({
+                    "type": "token_chunk",
                     "token": t + " ",
                     "is_final": False,
                     "ttft_ms": ttft_ms,
@@ -123,6 +144,7 @@ class LLMWorker:
 
             total_latency_ms = int((time.time() - start_time) * 1000)
             final_payload = json.dumps({
+                "type": "token_chunk",
                 "token": "",
                 "is_final": True,
                 "ttft_ms": ttft_ms,
@@ -131,7 +153,7 @@ class LLMWorker:
             })
             await redis.publish(channel, final_payload)
             
-            # 4. Acknowledge message in Redis Streams
+            # 5. Acknowledge message in Redis Streams
             await redis.xack(self.stream_name, self.group_name, msg_id)
 
     async def run(self):
@@ -146,7 +168,23 @@ class LLMWorker:
 
         while True:
             try:
-                # Read up to max_batch_size
+                # 1. Crash recovery: Check pending unacknowledged tasks for this consumer before new tasks
+                pending_events = await redis.xreadgroup(
+                    groupname=self.group_name,
+                    consumername=self.worker_id,
+                    streams={self.stream_name: "0"},
+                    count=self.max_batch_size
+                )
+                if pending_events:
+                    pending_batch = []
+                    for stream_key, messages in pending_events:
+                        for msg_id, payload in messages:
+                            pending_batch.append((msg_id, payload))
+                    if pending_batch:
+                        logger.info(f"🔄 Recovered {len(pending_batch)} unacknowledged tasks after restart.")
+                        await self.process_batch(pending_batch, redis)
+
+                # 2. Read new events up to max_batch_size
                 events = await redis.xreadgroup(
                     groupname=self.group_name,
                     consumername=self.worker_id,

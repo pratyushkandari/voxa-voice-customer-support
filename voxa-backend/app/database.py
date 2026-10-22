@@ -41,9 +41,24 @@ async def get_db():
             await session.close()
 
 async def init_db():
-    """Initializes pgvector extension and creates all database tables."""
+    """Initializes pgvector extension and creates all database tables with HNSW index."""
     async with engine.begin() as conn:
         logger.info("Enabling pgvector extension if not exists...")
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        except Exception as e:
+            logger.info(f"Vector extension notice: {e}")
+            
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Create HNSW index for sub-millisecond O(log N) vector retrieval
+        try:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_knowledge_base_embedding "
+                "ON knowledge_base USING hnsw (embedding vector_cosine_ops);"
+            ))
+            logger.info("HNSW index on knowledge_base.embedding verified.")
+        except Exception as e:
+            logger.info(f"HNSW vector index notice (skipped on non-pgvector engines): {e}")
+            
         logger.info("All PostgreSQL tables initialized successfully.")

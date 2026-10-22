@@ -129,3 +129,30 @@ async def create_guest_user(db: AsyncSession) -> tuple[User, str]:
     
     token = create_access_token(data={"sub": str(guest_user.id), "role": guest_user.role})
     return guest_user, token
+
+def decode_access_token(token: str) -> Optional[dict]:
+    """Safely decodes and validates a JWT access token."""
+    try:
+        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except Exception:
+        return None
+
+async def get_optional_current_user(
+    token: Optional[str] = None,
+    db: Optional[AsyncSession] = None
+) -> Optional[User]:
+    """Retrieves user if a valid token is provided; returns None otherwise."""
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        return None
+    if not db:
+        return None
+    try:
+        user_id = uuid.UUID(payload.get("sub"))
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+    except Exception:
+        return None

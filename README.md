@@ -142,12 +142,14 @@ voxa-voice-customer-support/
 │   │   └── database.py             # SQLAlchemy async engine & session management
 │   ├── workers/
 │   │   ├── stt_worker.py           # Faster-Whisper INT8 background stream processor
-│   │   ├── llm_worker.py           # Qwen2.5-0.5B inference & tool calling worker
-│   │   └── tts_worker.py           # Neural edge-tts synthesis consumer
-│   ├── tests/                      # Automated test suite (pytest + asyncio)
+│   │   ├── llm_worker.py           # Qwen2.5-0.5B inference & dynamic pgvector RAG worker
+│   │   ├── tts_worker.py           # Neural edge-tts synthesis consumer
+│   │   └── worker_supervisor.py    # Redis Streams PEL consumer group crash recovery & DLQ daemon
+│   ├── tests/                      # Automated test suite (pytest + asyncio - 18 tests)
 │   │   ├── test_gateway.py         # Ingress WebSocket & REST integration tests
-│   │   ├── test_circuit_breaker.py # Unit tests for breaker state transitions
-│   │   └── test_semantic_cache.py  # Cosine similarity threshold unit tests
+│   │   ├── test_circuit_breaker.py # Unit tests for breaker state transitions & probe locks
+│   │   ├── test_semantic_cache.py  # Cosine similarity threshold unit tests
+│   │   └── test_improvements.py    # Supervisor PEL recovery & regex boundary tests
 │   ├── Dockerfile                  # Multi-stage optimized Python container
 │   └── requirements.txt            # Locked production dependencies
 │
@@ -164,9 +166,20 @@ voxa-voice-customer-support/
 │   ├── prometheus.yml              # Prometheus scrape targets & intervals
 │   └── grafana/                    # Pre-provisioned dashboards (P95/P99, Queue Depth)
 │
+├── PROJECT_HANDBOOK.html           # Self-contained Interactive System Architecture & SDE-1 Handbook
 ├── docker-compose.yml              # Unified local & cloud microservice orchestration
 └── README.md                       # Engineering Documentation
 ```
+
+---
+
+## 📖 Interactive Architecture & SDE-1 Interview Handbook
+
+The repository includes a comprehensive, offline-first interactive engineering handbook in [`PROJECT_HANDBOOK.html`](PROJECT_HANDBOOK.html):
+* **Rosetta Stone & Technical Reality Summary:** Line-by-line verification between high-level architectural claims and actual implementation code.
+* **10-Point Production Engineering Audit:** Code-evidenced solutions for distributed circuit breaker probe-gating, pgvector HNSW indexing, bounded Redis cache scanning, and stream crash recovery.
+* **Senior MAANG Interview Defense (64+ Questions):** Deep technical responses covering distributed systems, race conditions, vector databases, and concurrency control.
+
 
 ---
 

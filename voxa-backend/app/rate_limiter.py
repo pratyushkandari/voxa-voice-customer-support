@@ -55,22 +55,37 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 async def rate_limit_dependency(request: Request):
-    """FastAPI dependency for sliding-window rate limiting."""
+    """FastAPI dependency for sliding-window rate limiting with verified identity."""
+    # 1. Determine verified identity: check Authorization header for valid JWT
     client_ip = request.client.host if request.client else "127.0.0.1"
-    user_id = request.headers.get("X-User-ID", client_ip)
-    
-    # 1. Idempotency Check if header present
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+
+    identity = f"ip:{client_ip}"
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            from app.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("sub"):
+                identity = f"user:{payload['sub']}"
+        except Exception:
+            pass
+            
+    # 2. Idempotency Check if header present
     idempotency_key = request.headers.get("X-Idempotency-Key")
     if idempotency_key:
-        is_first_attempt = await rate_limiter.check_idempotency(idempotency_key, user_id)
+        is_first_attempt = await rate_limiter.check_idempotency(idempotency_key, identity)
         if not is_first_attempt:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Duplicate request detected. Request is already processing or completed."
             )
             
-    # 2. Rate Limit Check
-    allowed = await rate_limiter.check_rate_limit(user_id)
+    # 3. Rate Limit Check
+    allowed = await rate_limiter.check_rate_limit(identity)
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
