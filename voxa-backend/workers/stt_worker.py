@@ -71,14 +71,24 @@ class STTWorker:
 
         while True:
             try:
-                # Read from Redis Streams
-                events = await redis.xreadgroup(
+                # 1. Crash recovery: Check pending unacknowledged tasks for this consumer
+                pending_events = await redis.xreadgroup(
                     groupname=self.group_name,
                     consumername=self.worker_id,
-                    streams={self.stream_name: ">"},
-                    count=1,
-                    block=2000
+                    streams={self.stream_name: "0"},
+                    count=1
                 )
+                events = pending_events if pending_events else None
+
+                # 2. If no pending tasks, read new messages
+                if not events:
+                    events = await redis.xreadgroup(
+                        groupname=self.group_name,
+                        consumername=self.worker_id,
+                        streams={self.stream_name: ">"},
+                        count=1,
+                        block=2000
+                    )
 
                 if not events:
                     continue
@@ -98,7 +108,7 @@ class STTWorker:
                             
                             logger.info(f"🗣️ Transcribed [Session: {session_id}] ({stt_latency_ms}ms): '{text_result}'")
 
-                            # Forward transcribed query to LLM Inference Queue
+                            # Forward transcribed query to LLM Inference Queue with voice pipeline flags
                             await redis.xadd(settings.STREAM_LLM_INFERENCE, {
                                 "session_id": session_id,
                                 "user_id": payload.get("user_id", "guest"),
@@ -106,6 +116,8 @@ class STTWorker:
                                 "conversation_id": payload.get("conversation_id", ""),
                                 "trace_id": trace_id,
                                 "stt_latency_ms": str(stt_latency_ms),
+                                "origin": "audio",
+                                "needs_audio": "true",
                                 "retry_count": "0"
                             })
 
