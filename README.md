@@ -170,10 +170,10 @@ voxa-voice-customer-support/
 
 ## 📖 Interactive Architecture & SDE-1 Interview Handbook
 
-The repository includes a comprehensive, offline-first interactive engineering handbook in [`PROJECT_HANDBOOK.html`](PROJECT_HANDBOOK.html):
-* **Rosetta Stone & Technical Reality Summary:** Line-by-line verification between high-level architectural claims and actual implementation code.
-* **10-Point Production Engineering Audit:** Code-evidenced solutions for distributed circuit breaker probe-gating, pgvector HNSW indexing, bounded Redis cache scanning, and stream crash recovery.
-* **Senior MAANG Interview Defense (64+ Questions):** Deep technical responses covering distributed systems, race conditions, vector databases, and concurrency control.
+The repository includes a self-contained, offline handbook in [`PROJECT_HANDBOOK.html`](PROJECT_HANDBOOK.html) (open it from the repository root so its source links resolve), organised in three layers:
+* **Project at a glance:** purpose, 30-second / 2-minute / 5-minute pitches, technology stack, architecture diagram, setup and current limitations.
+* **Implementation handbook:** file-by-file guide with line-referenced source links, end-to-end request workflows, API / WebSocket protocol and data model, AI/ML components, Docker Compose deployment on an Azure Linux VM, configuration, testing, security and ranked improvements.
+* **Interview preparation:** a 74-question bank with structured model answers, a scored 15-question mock interview, technology comparisons and system-design practice, plus an evidence ledger and validation report.
 
 ---
 
