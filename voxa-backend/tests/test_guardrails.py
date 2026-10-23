@@ -1,4 +1,3 @@
-import pytest
 from app.guardrails import mask_pii, sanitize_and_isolate_prompt
 
 def test_pii_masking():

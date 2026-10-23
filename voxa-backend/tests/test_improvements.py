@@ -1,7 +1,6 @@
-import pytest
 import asyncio
 import re
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from app.circuit_breaker import DistributedCircuitBreaker
 from workers.worker_supervisor import WorkerSupervisor
 
@@ -41,6 +40,7 @@ def test_circuit_breaker_probe_gating():
 def test_worker_supervisor_xpending_keys_and_recovery():
     async def _test():
         supervisor = WorkerSupervisor()
+        supervisor.streams_to_monitor = [("stream:audio:transcribe", "stt_group")]
         mock_redis = AsyncMock()
         
         # Mock pending summary
@@ -71,16 +71,23 @@ def test_worker_supervisor_xpending_keys_and_recovery():
         
         await supervisor.scan_and_reclaim_stranded_tasks(mock_redis)
         
-        # Verify 1001-0 was re-enqueued to stream head and acknowledged
-        mock_redis.xadd.assert_any_call("stream:audio:transcribe", {
+        xadd_calls = [c.args for c in mock_redis.xadd.call_args_list]
+
+        # Verify 1001-0 was re-enqueued to the same stream and acknowledged
+        assert ("stream:audio:transcribe", {
             "payload": "audio_1",
             "retry_count": "2",
             "reclaimed_from_msg_id": "1001-0"
-        })
+        }) in xadd_calls
         mock_redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1001-0")
 
-        # Verify 1002-0 was routed to DLQ and acknowledged
+        # Verify 1002-0 was routed to the DLQ (not re-enqueued) and acknowledged
+        dlq_payloads = [payload for stream, payload in xadd_calls if stream == "stream:dead:letter:queue"]
+        assert len(dlq_payloads) == 1 and dlq_payloads[0]["payload"] == "poison_audio"
         mock_redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1002-0")
+
+        # Every XADD is length-capped so streams cannot grow without bound
+        assert all(c.kwargs.get("maxlen") for c in mock_redis.xadd.call_args_list)
 
     asyncio.run(_test())
 

@@ -1,69 +1,39 @@
+"""Deterministic business tools (order lookup, refund eligibility, human escalation)."""
+import re
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import Order, SupportTicket
 
-# Deterministic tool schemas for LLM Function Calling
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lookup_order",
-            "description": "Fetch real-time shipping status and tracking info for a customer order ID.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "The order ID, e.g. ORD-88412 or ORD-10294"
-                    }
-                },
-                "required": ["order_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_refund_eligibility",
-            "description": "Check if an order is eligible for a return/refund (must be within 30 days of purchase).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "The order ID to check refund eligibility for"
-                    }
-                },
-                "required": ["order_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "escalate_to_human",
-            "description": "Create an urgent human support ticket when the customer is angry or the issue cannot be resolved by AI.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "issue_summary": {
-                        "type": "string",
-                        "description": "Concise explanation of the customer issue"
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["medium", "high", "urgent"],
-                        "description": "Priority level for the ticket"
-                    }
-                },
-                "required": ["issue_summary"]
-            }
-        }
-    }
-]
+ORDER_ID_PATTERN = re.compile(r"\bord-\d{4,6}\b", re.IGNORECASE)
+ESCALATION_PATTERN = re.compile(
+    r"\b(angry|human|agent|manager|escalat\w*|terrible|lawyer)\b", re.IGNORECASE
+)
+
+
+def detect_tool_intent(prompt: str) -> Tuple[bool, str, dict]:
+    """
+    Deterministic intent router (<1ms) shared by the LLM worker and the REST gateway.
+
+    Returns (has_tool, tool_name, arguments). Prompts that resolve to a tool produce
+    user-specific or side-effecting answers (order data, new tickets) and therefore must
+    never be served from, or written to, the shared semantic cache.
+    """
+    order_match = ORDER_ID_PATTERN.search(prompt)
+    if order_match:
+        order_id = order_match.group(0).upper()
+        prompt_lower = prompt.lower()
+        if "refund" in prompt_lower or "return" in prompt_lower:
+            return True, "check_refund_eligibility", {"order_id": order_id}
+        return True, "lookup_order", {"order_id": order_id}
+
+    if ESCALATION_PATTERN.search(prompt):
+        return True, "escalate_to_human", {"issue_summary": prompt, "priority": "urgent"}
+
+    return False, "", {}
+
 
 async def lookup_order(order_id: str, db: AsyncSession) -> Dict[str, Any]:
     """Fetches real-time status of an order from the PostgreSQL database."""
@@ -115,8 +85,12 @@ async def check_refund_eligibility(order_id: str, db: AsyncSession) -> Dict[str,
         "reason": "Within 30-day warranty policy" if eligible else f"Purchased {days_diff} days ago (exceeds 30-day window)."
     }
 
-async def escalate_to_human(issue_summary: str, priority: str = "urgent", user_id: Optional[uuid.UUID] = None, db: AsyncSession = None) -> Dict[str, Any]:
-    """Creates a high-priority ticket in the support_tickets table."""
+async def escalate_to_human(issue_summary: str, priority: str = "urgent", user_id: Optional[uuid.UUID] = None, db: Optional[AsyncSession] = None) -> Dict[str, Any]:
+    """
+    Creates a ticket in the support_tickets table and returns its ID.
+    ``db`` is optional only so the function can be unit-tested without a database;
+    production callers always pass a session so the ticket is actually persisted.
+    """
     ticket = SupportTicket(
         id=uuid.uuid4(),
         user_id=user_id,

@@ -1,4 +1,3 @@
-import pytest
 from app.auth import get_password_hash, verify_password, create_access_token, jwt
 from app.config import settings
 

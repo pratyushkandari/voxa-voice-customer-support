@@ -1,3 +1,4 @@
+"""SQLAlchemy ORM models for users, conversations, orders, the RAG knowledge base and tickets."""
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -10,15 +11,7 @@ from sqlalchemy import (
     Index
 )
 from sqlalchemy.dialects.postgresql import UUID
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    from sqlalchemy.types import UserDefinedType
-    class Vector(UserDefinedType):
-        def __init__(self, dim=384):
-            self.dim = dim
-        def get_col_spec(self, **kw):
-            return f"vector({self.dim})"
+from pgvector.sqlalchemy import Vector
 
 from app.database import Base
 
@@ -39,6 +32,7 @@ class User(Base):
 
 
 class Conversation(Base):
+    """A chat thread. Only created for authenticated users (user_id is NOT NULL)."""
     __tablename__ = "conversations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)

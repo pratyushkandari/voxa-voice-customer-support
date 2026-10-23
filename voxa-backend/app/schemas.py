@@ -1,16 +1,21 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+"""Pydantic request/response contracts for the public REST API."""
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
 
 # ----------------- Auth Schemas -----------------
 class UserCreate(BaseModel):
-    email: str = Field(..., description="User email address")
-    password: str = Field(..., min_length=6)
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., min_length=6, max_length=128)
+
 
 class UserLogin(BaseModel):
     email: str = Field(..., description="User email address")
     password: str
+
 
 class UserResponse(BaseModel):
     id: UUID
@@ -20,70 +25,21 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
 
-# ----------------- Chat & Stream Schemas -----------------
+
+# ----------------- Chat Schemas -----------------
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=2000)
+    # Continue an existing conversation owned by the caller; omit to start a new one.
     conversation_id: Optional[UUID] = None
-    stream: bool = True
 
-class ChatChunk(BaseModel):
-    token: str
-    is_final: bool = False
-    ttft_ms: Optional[int] = None
-    total_latency_ms: Optional[int] = None
-    trace_id: Optional[str] = None
 
-class MessageSchema(BaseModel):
-    id: UUID
-    conversation_id: UUID
-    sender: str
-    content: str
-    ttft_ms: Optional[int] = None
-    total_latency_ms: Optional[int] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-class ConversationSchema(BaseModel):
-    id: UUID
-    title: str
-    created_at: datetime
-    messages: List[MessageSchema] = []
-
-    model_config = ConfigDict(from_attributes=True)
-
-# ----------------- Telemetry HUD Schemas -----------------
-class TelemetryData(BaseModel):
-    ttft_ms: float
-    tokens_per_sec: float
-    stt_latency_ms: Optional[float] = None
-    total_latency_ms: float
-    trace_id: str
-    cache_hit: bool = False
-
-# ----------------- Business Tools Schemas -----------------
-class OrderLookupResponse(BaseModel):
-    order_id: str
-    item_name: str
-    order_date: datetime
-    status: str
-    tracking_number: Optional[str]
-
-class RefundEligibilityResponse(BaseModel):
-    order_id: str
-    eligible: bool
-    days_since_purchase: int
-    reason: str
-
-class TicketCreateRequest(BaseModel):
-    issue_summary: str
-    priority: str = "medium"
-
+# ----------------- Ticket Schemas -----------------
 class TicketResponse(BaseModel):
     id: UUID
     issue_summary: str
@@ -93,11 +49,13 @@ class TicketResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 # ----------------- Feedback Schemas -----------------
 class FeedbackCreate(BaseModel):
     message_id: UUID
     score: int = Field(..., ge=1, le=5)
-    feedback_text: Optional[str] = None
+    feedback_text: Optional[str] = Field(default=None, max_length=2000)
+
 
 class FeedbackResponse(BaseModel):
     id: UUID
@@ -107,13 +65,14 @@ class FeedbackResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 # ----------------- Admin SRE Schemas -----------------
 class AdminMetricsResponse(BaseModel):
-    active_connections: int
-    queue_depth: int
-    cache_hit_ratio: float
-    avg_ttft_ms: float
-    p95_latency_ms: float
-    active_workers: int
+    active_connections: int  # open WebSockets on the gateway process that served this request
+    queue_depth: int  # pending + undelivered entries across the STT and LLM consumer groups
+    cache_hit_ratio: float  # semantic cache hits / (hits + misses); 0.0 when no lookups yet
+    avg_ttft_ms: float  # mean time-to-first-token over persisted assistant messages
+    p95_latency_ms: float  # 95th percentile end-to-end latency over persisted assistant messages
+    active_workers: int  # workers with a live heartbeat key (10s TTL)
     total_conversations: int
     total_messages: int

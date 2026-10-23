@@ -2,30 +2,33 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Mic, 
-  MicOff, 
-  Send, 
-  Volume2, 
-  VolumeX, 
-  Sparkles, 
-  RotateCcw, 
-  Package, 
-  ShieldCheck, 
+import {
+  Mic,
+  MicOff,
+  Send,
+  RotateCcw,
+  Package,
+  ShieldCheck,
   AlertCircle,
   Copy,
   Check,
   Headphones,
   ArrowLeft,
   Activity,
-  FileText,
   User,
   Zap,
-  HelpCircle
+  WifiOff
 } from 'lucide-react';
 import { VoiceOrb } from '@/components/VoiceOrb';
 import { AudioWaveform } from '@/components/AudioWaveform';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
+import { RichText } from '@/components/RichText';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || API_URL.replace(/^http/, 'ws');
+const MAX_MESSAGE_CHARS = 2000; // mirrors the gateway's WS_MAX_TEXT_QUERY_CHARS
+
+type ConnectionState = 'connecting' | 'open' | 'closed';
 
 interface ChatMessage {
   id: string;
@@ -36,8 +39,33 @@ interface ChatMessage {
   totalLatencyMs?: number;
   traceId?: string;
   cacheHit?: boolean;
-  toolData?: any;
+  streaming?: boolean; // true until the final token_chunk for this trace arrives
+  isError?: boolean;
 }
+
+interface TelemetryState {
+  ttftMs: number | null;
+  tokensPerSec: number | null;
+  totalLatencyMs: number | null;
+  traceId: string | null;
+  cacheHit: boolean;
+  circuitBreakerState: string | null;
+}
+
+const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// crypto.randomUUID only exists in secure contexts (https / localhost).
+const newTraceId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const QUICK_ACTIONS = [
+  { label: 'Track Order: ORD-88412', query: 'Check status for order ORD-88412', icon: Package, color: 'text-indigo-400', hover: 'hover:border-indigo-500/40' },
+  { label: 'Check Refund: ORD-10294', query: 'Is order ORD-10294 eligible for a refund?', icon: RotateCcw, color: 'text-cyan-400', hover: 'hover:border-cyan-500/40' },
+  { label: 'Warranty & Return Terms', query: 'What is your warranty and return policy?', icon: ShieldCheck, color: 'text-emerald-400', hover: 'hover:border-emerald-500/40' },
+  { label: 'Escalate to Specialist', query: 'I need to speak with a human support agent', icon: User, color: 'text-purple-400', hover: 'hover:border-purple-500/40' },
+];
 
 export default function ChatPage() {
   const router = useRouter();
@@ -45,32 +73,26 @@ export default function ChatPage() {
     {
       id: 'welcome',
       sender: 'assistant',
-      content: 'Hello! I am your **Voxa Support Assistant**. I can look up live order statuses, process return & refund inquiries, verify warranty coverage, or connect you directly with a specialist. How can I assist you today?',
-      timestamp: 'Just now',
-      ttftMs: 118,
-      totalLatencyMs: 210,
-      traceId: 'trace-session-init',
-      cacheHit: true
+      content: 'Hello! I am your **Voxa Support Assistant**. I can look up live order statuses, process return & refund inquiries, verify warranty coverage, or connect you directly with a specialist. How can I assist you today?'
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [micError, setMicError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Telemetry state
-  const [telemetry, setTelemetry] = useState({
-    ttftMs: 135,
-    tokensPerSec: 42.0,
-    sttLatencyMs: 78,
-    totalLatencyMs: 210,
-    traceId: 'trace-session-live',
+  // Telemetry shows only values measured from real server responses (null until then).
+  const [telemetry, setTelemetry] = useState<TelemetryState>({
+    ttftMs: null,
+    tokensPerSec: null,
+    totalLatencyMs: null,
+    traceId: null,
     cacheHit: false,
-    circuitBreakerState: 'CLOSED'
+    circuitBreakerState: null
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -80,400 +102,322 @@ export default function ChatPage() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const lastLevelRef = useRef(0);
   const transcriptAccumulatorRef = useRef<string>('');
+  // Per-trace stream statistics used to derive throughput: first chunk time + chunk count.
+  const streamStatsRef = useRef<Record<string, { firstAt: number; chunks: number }>>({});
 
-  const scrollToBottom = () => {
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
   }, [messages, interimTranscript]);
-
-  // Connect to Backend WebSocket Gateway
-  useEffect(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
-    const wsUrl = backendUrl.replace(/^http/, 'ws') + '/v1/ws/stream';
-    
-    let socket: WebSocket | null = null;
-    try {
-      socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        console.log('⚡ Connected to Voxa Gateway WebSocket');
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'token_chunk') {
-            setIsSpeaking(true);
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              const parsedTtft = data.ttft_ms || data.ttftMs;
-              const parsedLatency = data.total_latency_ms || data.totalLatencyMs;
-              if (last && last.sender === 'assistant' && last.id.startsWith('streaming-')) {
-                const updatedContent = last.content + data.token;
-                return [
-                  ...prev.slice(0, -1),
-                  {
-                    ...last,
-                    content: updatedContent,
-                    ttftMs: parsedTtft || last.ttftMs,
-                    totalLatencyMs: parsedLatency || last.totalLatencyMs,
-                    traceId: data.trace_id || last.traceId,
-                    cacheHit: data.cache_hit !== undefined ? data.cache_hit : last.cacheHit
-                  }
-                ];
-              } else {
-                return [
-                  ...prev,
-                  {
-                    id: `streaming-${Date.now()}`,
-                    sender: 'assistant',
-                    content: data.token,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    ttftMs: parsedTtft,
-                    totalLatencyMs: parsedLatency,
-                    traceId: data.trace_id,
-                    cacheHit: data.cache_hit
-                  }
-                ];
-              }
-            });
-
-            if (data.is_final) {
-              setIsSpeaking(false);
-              const finalTtft = data.ttft_ms || data.ttftMs;
-              if (finalTtft) {
-                setTelemetry((t) => ({
-                  ...t,
-                  ttftMs: finalTtft,
-                  totalLatencyMs: data.total_latency_ms || 210,
-                  traceId: data.trace_id || t.traceId,
-                  cacheHit: !!data.cache_hit
-                }));
-              }
-            }
-          }
-        } catch (err) {
-          console.error('WebSocket parse error:', err);
-        }
-      };
-
-      socket.onclose = () => {
-        console.log('WebSocket connection closed');
-      };
-
-      wsRef.current = socket;
-    } catch (e) {
-      console.warn('WebSocket init fallback:', e);
-    }
-
-    return () => {
-      if (socket) socket.close();
-      stopAudioAnalyser();
-    };
-  }, []);
-
-  // Web Audio Decibel Analyzer for Dynamic Waveform & VoiceOrb
-  const startAudioAnalyser = async (stream: MediaStream) => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      const source = ctx.createMediaStreamSource(stream);
-      source.connect(analyser);
-
-      audioContextRef.current = ctx;
-      analyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const updateLevel = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / dataArray.length;
-        const normalized = Math.min(1, average / 100);
-        setAudioLevel(normalized);
-        animFrameRef.current = requestAnimationFrame(updateLevel);
-      };
-
-      updateLevel();
-    } catch (err) {
-      console.warn('Audio analyzer error:', err);
-    }
-  };
 
   const stopAudioAnalyser = () => {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    analyserRef.current = null;
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((track) => track.stop());
       micStreamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
     }
+    audioContextRef.current = null;
+    lastLevelRef.current = 0;
     setAudioLevel(0);
   };
 
-  // High-Quality Domain Reasoning Engine (FastAPI Fallback & Local Inference)
-  const getDomainResponse = (query: string): string => {
-    const q = query.toLowerCase().trim();
+  // Connect to the gateway WebSocket (authenticated with the session token so the
+  // conversation is persisted), reconnecting with capped exponential backoff.
+  useEffect(() => {
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    let disposed = false;
 
-    // Security & Guardrails
-    if (q.includes('ignore all previous') || q.includes('system prompt') || q.includes('drop table')) {
-      return "🛡️ **Security Guardrail:** Prompt injection and unauthorized database operations have been intercepted. I am configured for customer service, order lookups, and product support. How can I assist you?";
-    }
-
-    // Escalation & High Priority Support
-    if (q.includes('stole my money') || q.includes('chargeback') || q.includes('lawyer') || q.includes('fraud') || q.includes('human') || q.includes('agent') || q.includes('manager')) {
-      return "👤 **Priority Support Transfer Initiated:**\nI have generated Priority Support Ticket **#TK-88319** in our system. A Senior Customer Specialist has been assigned to your case and will connect with you shortly.\n\nTicket Summary: *Customer inquiry flagged for priority supervisor assistance.*";
-    }
-
-    // Order Lookups (Specific Mock DB Lookups)
-    if (q.includes('ord-88412') || q.includes('88412')) {
-      if (q.includes('refund') || q.includes('return')) {
-        return "📦 **Order ORD-88412 (Voxa Wireless AI Earbuds Pro)**:\n• **Purchase Date**: 5 days ago\n• **Status**: Eligible for 100% full refund under our 30-day return policy.\n• **Action**: Would you like me to generate your free prepaid return shipping label?";
+    const handleServerEvent = (raw: string) => {
+      let data: any;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        return;
       }
-      return "📦 **Order ORD-88412 (Voxa Wireless AI Earbuds Pro)**:\n• **Status**: Shipped via Express Courier\n• **Tracking Number**: `TRK-99281744US`\n• **Estimated Delivery**: Within 2 business days\n• **Current Location**: Regional Hub Sorting Facility";
-    }
 
-    if (q.includes('ord-10294') || q.includes('10294')) {
-      return "📦 **Order ORD-10294 (Voxa Smart Studio Noise-Cancelling Mic)**:\n• **Delivered**: 45 days ago\n• **Refund Status**: Ineligible for standard return (exceeds our 30-day policy window).\n• **Warranty**: Fully covered under our 1-Year Hardware Warranty for technical repair or component replacement.";
-    }
+      if (data.type === 'token_chunk') {
+        const traceId: string = data.trace_id || 'untraced';
+        const now = performance.now();
+        const stats = (streamStatsRef.current[traceId] ??= { firstAt: now, chunks: 0 });
+        if (data.token) stats.chunks += 1;
+        setIsSpeaking(!data.is_final);
 
-    if (q.includes('ord-99120') || q.includes('99120')) {
-      return "📦 **Order ORD-99120 (Voxa Ultra 4K Conference Webcam)**:\n• **Status**: Processing at Fulfillment Warehouse\n• **Estimated Dispatch**: Today by 6:00 PM";
-    }
+        setMessages((prev) => {
+          // Append to the in-flight bubble for this trace; otherwise start a new one.
+          const idx = prev.findIndex((m) => m.streaming && m.traceId === traceId);
+          if (idx === -1) {
+            return [
+              ...prev,
+              {
+                id: `assistant-${traceId}-${prev.length}`,
+                sender: 'assistant',
+                content: data.token || '',
+                timestamp: clockTime(),
+                ttftMs: data.ttft_ms,
+                totalLatencyMs: data.total_latency_ms,
+                traceId,
+                cacheHit: data.cache_hit,
+                streaming: !data.is_final
+              }
+            ];
+          }
+          const current = prev[idx];
+          const updated: ChatMessage = {
+            ...current,
+            content: current.content + (data.token || ''),
+            ttftMs: data.ttft_ms ?? current.ttftMs,
+            totalLatencyMs: data.total_latency_ms ?? current.totalLatencyMs,
+            cacheHit: data.cache_hit ?? current.cacheHit,
+            streaming: !data.is_final
+          };
+          return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
+        });
 
-    const customOrdMatch = q.match(/ord-\d{4,6}/i);
-    if (customOrdMatch) {
-      return `📦 **Order ${customOrdMatch[0].toUpperCase()}**: Located in database! Status is **Shipped** with standard courier tracking active.`;
-    }
-
-    // Return & Refund Policy
-    if (q.includes('refund') || q.includes('return') || q.includes('money back') || q.includes('exchange')) {
-      return "💸 **Return & Refund Policy:**\n• **30-Day Window**: Full refunds or product exchanges within 30 days of delivery in original packaging.\n• **Processing Time**: Funds are credited back to your original payment card within **3 to 5 business days**.\n• **Prepaid Labels**: We provide free return shipping labels for all domestic returns.";
-    }
-
-    // Hardware Warranty
-    if (q.includes('warranty') || q.includes('defect') || q.includes('broken') || q.includes('repair')) {
-      return "🛡️ **1-Year Manufacturer Warranty:**\nAll Voxa hardware includes a **1-Year Comprehensive Warranty** covering internal craftsmanship, battery defects, and acoustic drivers. If your device is malfunctioning, let me know and I will issue an instant replacement RMA.";
-    }
-
-    // Product Buying Advice
-    if (q.includes('headphone') || q.includes('earphone') || q.includes('earbud') || q.includes('which should i buy') || q.includes('compare')) {
-      return "🎧 **Product Buying Guide:**\n\n• **Voxa Wireless AI Earbuds Pro ($149)**:\n  - Ideal for: Workouts, running, calls on-the-go.\n  - Key Specs: IPX7 water resistance, 32-hr battery with case.\n\n• **Voxa Smart Studio Headphones ($249)**:\n  - Ideal for: Focus coding, long office hours, travel.\n  - Key Specs: 42dB Hybrid Active Noise Cancellation, memory foam comfort, 40-hr battery.\n\nWhich feature matters most to you—portability or noise cancellation?";
-    }
-
-    // Delivery Discrepancy
-    if (q.includes('delivered') && (q.includes("not") || q.includes("haven't") || q.includes("missing"))) {
-      return "🚚 **Delivery Verification:**\nIf your tracking shows delivered but you have not received it:\n1. Check with household members or building reception.\n2. Carriers occasionally scan packages up to 24h before doorstep delivery.\n3. If it has not arrived by tomorrow, provide your Order ID (e.g. `ORD-88412`) and we will dispatch a free priority replacement unit immediately!";
-    }
-
-    // Greetings
-    if (/\b(hi|hello|hey|greetings|help|support)\b/i.test(q)) {
-      return "👋 Hello! How can I help you today? You can ask about:\n• 📦 **Live Order Tracking** (e.g. `ORD-88412`)\n• 💸 **Refund Calculations & Returns**\n• 🛡️ **Hardware Warranty Verification**\n• 🎧 **Product Recommendations**\n\nFeel free to type or tap the microphone to speak!";
-    }
-
-    return "Thank you for reaching out! I can assist with order tracking (e.g. ORD-88412), return and refund authorizations, warranty claims, and product inquiries. Please provide your Order ID or describe your request!";
-  };
-
-  // Send message
-  const handleSendMessage = (textToSend?: string) => {
-    const text = (textToSend || inputMessage).trim();
-    if (!text) return;
-
-    setInterimTranscript('');
-    transcriptAccumulatorRef.current = '';
-    const traceId = `trace-${Date.now()}`;
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      traceId
+        if (data.is_final) {
+          const elapsedSec = (now - stats.firstAt) / 1000;
+          setTelemetry({
+            ttftMs: data.ttft_ms ?? null,
+            totalLatencyMs: data.total_latency_ms ?? null,
+            tokensPerSec: elapsedSec > 0 && stats.chunks > 1 ? stats.chunks / elapsedSec : null,
+            traceId,
+            cacheHit: !!data.cache_hit,
+            circuitBreakerState: data.circuit_breaker || 'CLOSED'
+          });
+          delete streamStatsRef.current[traceId];
+        }
+      } else if (data.type === 'error') {
+        setIsSpeaking(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}-${prev.length}`,
+            sender: 'assistant',
+            content: data.message || 'Something went wrong.',
+            timestamp: clockTime(),
+            traceId: data.trace_id,
+            isError: true
+          }
+        ]);
+      }
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputMessage('');
+    const connect = () => {
+      const token = localStorage.getItem('voxa_token');
+      const url = `${WS_BASE_URL}/v1/ws/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      setConnectionState('connecting');
+      const ws = new WebSocket(url);
+      socket = ws;
+      wsRef.current = ws;
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'text_query',
-        text: text,
-        trace_id: traceId
-      }));
-    } else {
-      // Local fallback simulation
-      simulateLocalResponse(text, traceId);
+      ws.onopen = () => {
+        attempts = 0;
+        setConnectionState('open');
+      };
+      ws.onmessage = (event) => handleServerEvent(event.data);
+      ws.onclose = () => {
+        if (wsRef.current === ws) wsRef.current = null;
+        if (disposed) return;
+        setIsSpeaking(false);
+        setConnectionState('closed');
+        const delay = Math.min(10000, 1000 * 2 ** attempts);
+        attempts += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      socket?.close();
+      try {
+        recognitionRef.current?.abort();
+      } catch {}
+      stopAudioAnalyser();
+    };
+  }, []);
+
+  // Web Audio level meter that drives the VoiceOrb while listening.
+  const startAudioAnalyser = (stream: MediaStream) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+
+      audioContextRef.current = ctx;
+      analyserRef.current = analyser;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const updateLevel = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        // Quantise to 5% steps and only update state on change: setting state on every
+        // animation frame re-rendered the whole chat (all messages) ~60 times a second.
+        const level = Math.round(Math.min(1, sum / dataArray.length / 100) * 20) / 20;
+        if (level !== lastLevelRef.current) {
+          lastLevelRef.current = level;
+          setAudioLevel(level);
+        }
+        animFrameRef.current = requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+    } catch (err) {
+      console.warn('Audio analyser unavailable:', err);
     }
   };
 
-  const simulateLocalResponse = (query: string, traceId: string) => {
-    const start = Date.now();
-    setIsSpeaking(true);
+  const handleSendMessage = (textToSend?: string) => {
+    const text = (textToSend ?? inputMessage).trim().slice(0, MAX_MESSAGE_CHARS);
+    if (!text) return;
 
-    const reply = getDomainResponse(query);
-    const words = reply.split(' ');
-    let current = '';
-    const tempId = `streaming-${Date.now()}`;
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      // Keep the typed text so nothing is lost; the banner explains the reconnect.
+      setInputMessage(text);
+      return;
+    }
 
+    const traceId = newTraceId();
+    socket.send(JSON.stringify({ type: 'text_query', text, trace_id: traceId }));
     setMessages((prev) => [
       ...prev,
-      {
-        id: tempId,
-        sender: 'assistant',
-        content: '',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        ttftMs: 135,
-        traceId
-      }
+      { id: `user-${traceId}`, sender: 'user', content: text, timestamp: clockTime(), traceId }
     ]);
-
-    words.forEach((w, i) => {
-      setTimeout(() => {
-        current += w + ' ';
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, content: current } : m))
-        );
-        if (i === words.length - 1) {
-          setIsSpeaking(false);
-          const total = Date.now() - start;
-          setTelemetry({
-            ttftMs: 135,
-            tokensPerSec: 42.0,
-            sttLatencyMs: 78,
-            totalLatencyMs: total,
-            traceId,
-            cacheHit: true,
-            circuitBreakerState: 'CLOSED'
-          });
-        }
-      }, i * 25);
-    });
+    setInputMessage('');
+    setInterimTranscript('');
+    transcriptAccumulatorRef.current = '';
   };
 
-  // Robust Cross-Browser Microphone Voice Input
+  // Voice input via the browser's Web Speech API (Chrome / Edge / Safari).
   const handleToggleVoice = async () => {
     if (isRecording) {
-      // Stop Recording & Submit
       if (recognitionRef.current) {
+        // onend submits the transcript exactly once.
         try {
           recognitionRef.current.stop();
         } catch {}
-      }
-      stopAudioAnalyser();
-      setIsRecording(false);
-      const textToSubmit = (transcriptAccumulatorRef.current || interimTranscript || inputMessage).trim();
-      if (textToSubmit) {
-        handleSendMessage(textToSubmit);
-      }
-      setInterimTranscript('');
-      transcriptAccumulatorRef.current = '';
-    } else {
-      setMicError(null);
-      setInterimTranscript('');
-      transcriptAccumulatorRef.current = '';
-
-      // 1. Start Web Audio Analyzer (For real voice waveform & VoiceOrb animation)
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        micStreamRef.current = stream;
-        startAudioAnalyser(stream);
-      } catch (err: any) {
-        console.warn('Microphone permission warning:', err);
-        setMicError('Please enable microphone access in your browser to speak.');
-      }
-
-      // 2. Start Speech Recognition
-      const SpeechRecognition = 
-        (window as any).SpeechRecognition || 
-        (window as any).webkitSpeechRecognition ||
-        (window as any).mozSpeechRecognition ||
-        (window as any).msSpeechRecognition;
-
-      if (SpeechRecognition) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = false; // Single utterance for maximum accuracy & instant auto-commit
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
-          recognition.maxAlternatives = 1;
-
-          recognition.onstart = () => {
-            setIsRecording(true);
-          };
-
-          recognition.onresult = (event: any) => {
-            let currentInterim = '';
-            for (let i = 0; i < event.results.length; i++) {
-              currentInterim += event.results[i][0].transcript;
-            }
-            if (currentInterim) {
-              setInterimTranscript(currentInterim);
-              transcriptAccumulatorRef.current = currentInterim;
-              setInputMessage(currentInterim);
-            }
-          };
-
-          recognition.onerror = (event: any) => {
-            console.warn('Speech recognition notice:', event.error);
-            if (event.error === 'not-allowed') {
-              setMicError('Microphone permission was denied in your browser settings.');
-            }
-            setIsRecording(false);
-            stopAudioAnalyser();
-          };
-
-          recognition.onend = () => {
-            setIsRecording(false);
-            stopAudioAnalyser();
-            const textToSubmit = (transcriptAccumulatorRef.current || interimTranscript).trim();
-            if (textToSubmit) {
-              handleSendMessage(textToSubmit);
-              transcriptAccumulatorRef.current = '';
-              setInterimTranscript('');
-            }
-          };
-
-          recognition.start();
-          recognitionRef.current = recognition;
-        } catch (err) {
-          console.warn('Speech recognition init error:', err);
-          setIsRecording(true); // Fallback: keep listening active for audio analyser
-        }
       } else {
-        setIsRecording(true);
+        stopAudioAnalyser();
+        setIsRecording(false);
       }
+      return;
+    }
+
+    setMicError(null);
+    setInterimTranscript('');
+    transcriptAccumulatorRef.current = '';
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setMicError('Voice input is not supported in this browser. Please use Chrome, Edge or Safari, or type your question.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      startAudioAnalyser(stream);
+    } catch (err) {
+      console.warn('Microphone permission error:', err);
+      setMicError('Microphone access is blocked. Allow microphone access in your browser settings to speak.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false; // single utterance, auto-commits on silence
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          setInterimTranscript(transcript);
+          transcriptAccumulatorRef.current = transcript;
+          setInputMessage(transcript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setMicError('Microphone permission was denied in your browser settings.');
+        } else if (event.error === 'no-speech') {
+          setMicError('No speech was detected. Please try again.');
+        } else if (event.error !== 'aborted') {
+          setMicError(`Voice input error: ${event.error}`);
+        }
+      };
+
+      // Fires after stop(), silence, or an error: the single place that submits.
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        setIsRecording(false);
+        stopAudioAnalyser();
+        const transcript = transcriptAccumulatorRef.current.trim();
+        transcriptAccumulatorRef.current = '';
+        setInterimTranscript('');
+        if (transcript) handleSendMessage(transcript);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.warn('Speech recognition init error:', err);
+      recognitionRef.current = null;
+      stopAudioAnalyser();
+      setMicError('Could not start voice input. Please type your question instead.');
     }
   };
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      // navigator.clipboard is undefined on plain-http origins (e.g. a public IP).
+      await navigator.clipboard.writeText(text.replace(/\*\*|`/g, ''));
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      console.warn('Clipboard is unavailable in this context.');
+    }
   };
 
+  const isConnected = connectionState === 'open';
+  const statusLabel = isRecording
+    ? 'Listening (speak now)...'
+    : isSpeaking
+      ? 'Responding...'
+      : isConnected
+        ? 'Voice assistant ready'
+        : 'Connecting to gateway...';
+
   return (
-    <div className="flex h-screen bg-[#080c14] text-slate-100 overflow-hidden font-sans relative">
+    <div className="flex h-screen h-dvh bg-[#080c14] text-slate-100 overflow-hidden font-sans relative">
       {/* Left Assistant Panel */}
-      <aside className="w-80 border-r border-slate-800/80 bg-slate-950/60 p-6 flex flex-col justify-between hidden lg:flex relative z-10 backdrop-blur-md">
+      <aside className="w-80 border-r border-slate-800/80 bg-slate-950/60 p-6 flex-col justify-between hidden lg:flex relative z-10 backdrop-blur-md">
         <div>
           {/* Brand Header */}
           <div className="flex items-center gap-3 pb-6 border-b border-slate-800/80">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 flex items-center justify-center shadow-md shadow-indigo-500/20">
-              <Headphones className="w-5 h-5 text-white" />
+              <Headphones className="w-5 h-5 text-white" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white">Voxa Support</h1>
@@ -483,28 +427,24 @@ export default function ChatPage() {
 
           {/* Voice Orb Area */}
           <div className="mt-8 flex flex-col items-center text-center">
-            <div 
+            <button
+              type="button"
               onClick={handleToggleVoice}
-              className="cursor-pointer group relative p-3 rounded-full hover:bg-slate-900/60 transition-all"
-              title={isRecording ? 'Click to stop listening' : 'Click to speak'}
+              aria-pressed={isRecording}
+              aria-label={isRecording ? 'Stop listening' : 'Start voice input'}
+              className="group relative p-3 rounded-full hover:bg-slate-900/60 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
-              <VoiceOrb 
-                isSpeaking={isSpeaking} 
-                isListening={isRecording} 
-                audioLevel={audioLevel}
-              />
-              <div className="absolute inset-0 rounded-full border border-indigo-500/20 group-hover:border-indigo-500/50 transition-colors pointer-events-none" />
+              <VoiceOrb isSpeaking={isSpeaking} isListening={isRecording} audioLevel={audioLevel} />
+              <span className="absolute inset-0 rounded-full border border-indigo-500/20 group-hover:border-indigo-500/50 transition-colors pointer-events-none" />
+            </button>
+
+            <div className="mt-4 flex items-center gap-2" aria-live="polite">
+              <span className={`w-2 h-2 rounded-full ${isRecording ? 'bg-pink-500 animate-pulse' : isSpeaking ? 'bg-cyan-400 animate-pulse' : isConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <span className="text-xs font-medium text-slate-300">{statusLabel}</span>
             </div>
 
-            <div className="mt-4 flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isRecording ? 'bg-pink-500 animate-pulse' : isSpeaking ? 'bg-cyan-400 animate-pulse' : 'bg-emerald-400'}`} />
-              <span className="text-xs font-medium text-slate-300">
-                {isRecording ? 'Listening (Speak now)...' : isSpeaking ? 'Synthesizing Audio Response...' : 'Voice Assistant Ready'}
-              </span>
-            </div>
-
-            {/* Audio Waveform */}
-            <div className="w-full mt-4 h-8 flex items-center justify-center">
+            {/* Decorative activity waveform */}
+            <div className="w-full mt-4 h-8 flex items-center justify-center" aria-hidden="true">
               <AudioWaveform isPlaying={isRecording || isSpeaking} />
             </div>
           </div>
@@ -515,84 +455,65 @@ export default function ChatPage() {
               Frequent Support Inquiries
             </span>
             <div className="mt-3 space-y-2">
-              <button
-                onClick={() => handleSendMessage('Check status for order ORD-88412')}
-                className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 hover:border-indigo-500/40 text-xs text-slate-300 transition-all flex items-center gap-2"
-              >
-                <Package className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                <span className="truncate">Track Order: ORD-88412</span>
-              </button>
-
-              <button
-                onClick={() => handleSendMessage('Is order ORD-10294 eligible for a refund?')}
-                className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 text-xs text-slate-300 transition-all flex items-center gap-2"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                <span className="truncate">Check Refund: ORD-10294</span>
-              </button>
-
-              <button
-                onClick={() => handleSendMessage('What is your warranty and return policy?')}
-                className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 hover:border-emerald-500/40 text-xs text-slate-300 transition-all flex items-center gap-2"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span className="truncate">Warranty & Return Terms</span>
-              </button>
-
-              <button
-                onClick={() => handleSendMessage('I need to speak with a human support agent')}
-                className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 hover:border-purple-500/40 text-xs text-slate-300 transition-all flex items-center gap-2"
-              >
-                <User className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-                <span className="truncate">Escalate to Specialist</span>
-              </button>
+              {QUICK_ACTIONS.map(({ label, query, icon: Icon, color, hover }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => handleSendMessage(query)}
+                  disabled={!isConnected}
+                  className={`w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 ${hover} text-xs text-slate-300 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400`}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${color} flex-shrink-0`} aria-hidden="true" />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
         {/* Bottom Session Info */}
-        <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span className="font-mono text-[11px]">Gateway: 8088 Active</span>
-          </div>
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-          >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
+        <div className="pt-4 border-t border-slate-800/80 flex items-center gap-2 text-xs text-slate-400">
+          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : connectionState === 'connecting' ? 'bg-amber-400 animate-pulse' : 'bg-rose-500'}`} />
+          <span className="font-mono text-[11px]">
+            Gateway: {isConnected ? 'connected' : connectionState === 'connecting' ? 'connecting…' : 'offline'}
+          </span>
         </div>
       </aside>
 
       {/* Main Chat Workspace */}
-      <main className="flex-1 flex flex-col h-full relative z-10 bg-[#080c14]">
+      <main className="flex-1 min-w-0 flex flex-col h-full relative z-10 bg-[#080c14]">
         {/* Top App Bar */}
-        <header className="h-16 border-b border-slate-800/80 px-6 flex items-center justify-between bg-slate-950/40 backdrop-blur-md z-20">
-          <div className="flex items-center gap-3">
+        <header className="h-16 border-b border-slate-800/80 px-3 sm:px-6 flex items-center justify-between gap-2 bg-slate-950/40 backdrop-blur-md z-20">
+          <div className="flex items-center gap-3 min-w-0">
             <button
+              type="button"
               onClick={() => router.push('/')}
+              aria-label="Back to home"
               className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors lg:hidden"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white tracking-tight">Support Session Console</h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  Live
+                <h2 className="text-sm font-bold text-white tracking-tight truncate">Support Session Console</h2>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border flex-shrink-0 ${
+                    isConnected
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                      : 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                  }`}
+                >
+                  {isConnected ? 'Live' : connectionState === 'connecting' ? 'Connecting' : 'Offline'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">Automated Knowledge & Voice Resolution Pipeline</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <TelemetryHUD
               ttftMs={telemetry.ttftMs}
               tokensPerSec={telemetry.tokensPerSec}
-              sttLatencyMs={telemetry.sttLatencyMs}
               totalLatencyMs={telemetry.totalLatencyMs}
               traceId={telemetry.traceId}
               cacheHit={telemetry.cacheHit}
@@ -600,55 +521,83 @@ export default function ChatPage() {
             />
 
             <button
+              type="button"
               onClick={() => router.push('/admin')}
+              aria-label="Operations dashboard"
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5"
             >
-              <Activity className="w-3.5 h-3.5 text-cyan-400" />
+              <Activity className="w-3.5 h-3.5 text-cyan-400" aria-hidden="true" />
               <span className="hidden sm:inline">Operations</span>
             </button>
           </div>
         </header>
 
+        {/* Connection banner */}
+        {connectionState === 'closed' && (
+          <div role="status" className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-200 text-xs flex items-center justify-center gap-2">
+            <WifiOff className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Connection to the support gateway was lost. Reconnecting automatically…</span>
+          </div>
+        )}
+
         {/* Messages Feed */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-4xl w-full mx-auto">
+        <div
+          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-4xl w-full mx-auto"
+          role="log"
+          aria-live="polite"
+          aria-busy={isSpeaking}
+          aria-label="Conversation"
+        >
           {messages.map((msg) => (
             <div
               key={msg.id}
               className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} group`}
             >
-              <div className="flex items-end gap-2 max-w-[88%] sm:max-w-[80%]">
+              <div className="flex items-end gap-2 max-w-[92%] sm:max-w-[80%]">
                 {msg.sender === 'assistant' && (
-                  <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 mb-1 text-indigo-400">
-                    <Headphones className="w-3.5 h-3.5" />
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mb-1 border ${
+                      msg.isError
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                        : 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {msg.isError ? <AlertCircle className="w-3.5 h-3.5" /> : <Headphones className="w-3.5 h-3.5" />}
                   </div>
                 )}
 
                 <div
-                  className={`p-4 rounded-2xl text-xs sm:text-sm leading-relaxed transition-all ${
+                  className={`min-w-0 p-4 rounded-2xl text-xs sm:text-sm leading-relaxed transition-all ${
                     msg.sender === 'user'
                       ? 'bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10'
-                      : 'bg-slate-900/80 border border-slate-800 text-slate-200 rounded-bl-none shadow-sm'
+                      : msg.isError
+                        ? 'bg-amber-500/10 border border-amber-500/30 text-amber-100 rounded-bl-none'
+                        : 'bg-slate-900/80 border border-slate-800 text-slate-200 rounded-bl-none shadow-sm'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div className="whitespace-pre-wrap break-words">
+                    <RichText text={msg.content} />
+                  </div>
 
-                  {/* Metadata Footer */}
-                  {msg.sender === 'assistant' && (msg.ttftMs || msg.cacheHit) && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                      <div className="flex items-center gap-2">
-                        {msg.cacheHit ? (
+                  {/* Metadata Footer (only for real, measured responses) */}
+                  {msg.sender === 'assistant' && !msg.isError && msg.ttftMs !== undefined && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between gap-3 text-[10px] text-slate-500 font-mono">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {msg.cacheHit && (
                           <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                            <Zap className="w-2.5 h-2.5" /> Cache Hit (&lt;15ms)
+                            <Zap className="w-2.5 h-2.5" aria-hidden="true" /> Cache hit
                           </span>
-                        ) : (
-                          <span>TTFT: <span className="text-cyan-400">{msg.ttftMs}ms</span></span>
                         )}
-                        {msg.totalLatencyMs && <span>Total: {msg.totalLatencyMs}ms</span>}
+                        <span>TTFT: <span className="text-cyan-400">{msg.ttftMs}ms</span></span>
+                        {msg.totalLatencyMs !== undefined && <span>Total: {msg.totalLatencyMs}ms</span>}
                       </div>
 
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(msg.content, msg.id)}
-                        className="hover:text-slate-300 transition-colors p-1"
+                        className="hover:text-slate-300 transition-colors p-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                        aria-label="Copy response"
                         title="Copy response"
                       >
                         {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -663,8 +612,8 @@ export default function ChatPage() {
           {/* Live Interim Voice Transcript Bubble */}
           {isRecording && interimTranscript && (
             <div className="flex flex-col items-end">
-              <div className="p-3.5 rounded-2xl rounded-br-none bg-indigo-600/40 border border-indigo-500/50 text-indigo-100 text-xs sm:text-sm max-w-[80%] flex items-center gap-2 animate-pulse">
-                <Mic className="w-3.5 h-3.5 text-pink-400 animate-bounce" />
+              <div className="p-3.5 rounded-2xl rounded-br-none bg-indigo-600/40 border border-indigo-500/50 text-indigo-100 text-xs sm:text-sm max-w-[80%] flex items-center gap-2">
+                <Mic className="w-3.5 h-3.5 text-pink-400 animate-pulse" aria-hidden="true" />
                 <span>{interimTranscript}</span>
               </div>
               <span className="text-[10px] text-pink-400 font-mono mt-1 mr-1">Listening in real-time...</span>
@@ -673,13 +622,14 @@ export default function ChatPage() {
 
           {/* Mic Access Error Toast */}
           {micError && (
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+            <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" aria-hidden="true" />
                 <span>{micError}</span>
               </div>
-              <button 
-                onClick={() => setMicError(null)} 
+              <button
+                type="button"
+                onClick={() => setMicError(null)}
                 className="text-slate-400 hover:text-white text-xs font-semibold ml-3"
               >
                 Dismiss
@@ -691,53 +641,68 @@ export default function ChatPage() {
         </div>
 
         {/* Input Controls Bar */}
-        <div className="p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+        <form
+          className="p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSendMessage();
+          }}
+        >
           <div className="max-w-4xl mx-auto flex items-center gap-2.5">
             {/* Microphone Toggle Button */}
             <button
+              type="button"
               onClick={handleToggleVoice}
-              className={`p-3 rounded-xl transition-all flex items-center justify-center ${
+              disabled={!isConnected && !isRecording}
+              aria-pressed={isRecording}
+              aria-label={isRecording ? 'Stop recording' : 'Speak via microphone'}
+              title={isRecording ? 'Stop recording' : 'Speak via microphone'}
+              className={`p-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
                 isRecording
                   ? 'bg-pink-600 text-white animate-pulse shadow-lg shadow-pink-600/30'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700'
               }`}
-              title={isRecording ? 'Stop Recording' : 'Speak via Microphone'}
             >
               {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </button>
 
             {/* Text Input */}
             <div className="flex-1 relative">
+              <label htmlFor="chat-input" className="sr-only">Message</label>
               <input
+                id="chat-input"
                 type="text"
                 value={inputMessage}
+                maxLength={MAX_MESSAGE_CHARS}
+                autoComplete="off"
                 onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder={isRecording ? 'Listening to your speech...' : 'Type order inquiry, refund question, or speak via mic...'}
+                placeholder={
+                  isRecording
+                    ? 'Listening to your speech...'
+                    : isConnected
+                      ? 'Type an order, refund or warranty question…'
+                      : 'Waiting for the gateway connection…'
+                }
                 className="w-full bg-slate-900/90 border border-slate-800/90 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all"
               />
             </div>
 
             {/* Send Button */}
             <button
-              onClick={() => handleSendMessage()}
-              disabled={!inputMessage.trim()}
+              type="submit"
+              disabled={!inputMessage.trim() || !isConnected}
+              aria-label="Send message"
+              title="Send message"
               className={`p-3 rounded-xl transition-all flex items-center justify-center ${
-                inputMessage.trim()
+                inputMessage.trim() && isConnected
                   ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
                   : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
               }`}
-              title="Send Message"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </form>
       </main>
     </div>
   );

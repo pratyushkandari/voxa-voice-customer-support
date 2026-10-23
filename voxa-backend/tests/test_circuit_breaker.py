@@ -1,4 +1,3 @@
-import pytest
 import asyncio
 from unittest.mock import AsyncMock
 from app.circuit_breaker import DistributedCircuitBreaker

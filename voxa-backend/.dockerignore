@@ -1,0 +1,10 @@
+# Keep secrets, caches and non-runtime files out of the image build context
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.venv
+venv
+k8s

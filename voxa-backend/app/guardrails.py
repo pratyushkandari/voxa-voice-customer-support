@@ -1,3 +1,9 @@
+"""
+Ingress guardrails: PII masking and prompt-injection neutralisation.
+
+These run on every user utterance before it is routed, embedded, cached or persisted,
+so raw card numbers / SSNs never reach Redis, PostgreSQL or the worker fleet.
+"""
 import re
 from typing import Tuple
 
@@ -15,6 +21,9 @@ PROMPT_INJECTION_PATTERNS = [
     re.compile(r'output\s+the\s+system\s+prompt', re.IGNORECASE),
 ]
 
+INJECTION_PLACEHOLDER = "[BLOCKED_INSTRUCTION_OVERRIDE]"
+
+
 def mask_pii(text: str) -> Tuple[str, bool]:
     """
     Masks sensitive Personally Identifiable Information (PII) including
@@ -22,36 +31,47 @@ def mask_pii(text: str) -> Tuple[str, bool]:
     Returns (sanitized_text, has_masked_pii).
     """
     masked = False
-    
-    # Mask Credit Cards
+
+    # Card numbers are checked first: a 16-digit card would otherwise be partially
+    # consumed by the phone pattern.
     if CREDIT_CARD_REGEX.search(text):
         text = CREDIT_CARD_REGEX.sub("[REDACTED_CREDIT_CARD]", text)
         masked = True
-        
-    # Mask Phone Numbers
+
     if PHONE_REGEX.search(text):
         text = PHONE_REGEX.sub("[REDACTED_PHONE_NUMBER]", text)
         masked = True
-        
-    # Mask SSN
+
     if SSN_REGEX.search(text):
         text = SSN_REGEX.sub("[REDACTED_SSN]", text)
         masked = True
-        
+
     return text, masked
 
-def sanitize_and_isolate_prompt(user_input: str) -> str:
+
+def detect_prompt_injection(text: str) -> bool:
+    """True if ``text`` contains a known injection signature (or was already neutralised)."""
+    return INJECTION_PLACEHOLDER in text or any(p.search(text) for p in PROMPT_INJECTION_PATTERNS)
+
+
+def sanitize_user_input(user_input: str) -> str:
     """
-    Strips dangerous prompt injection attempts and wraps user input in strict
-    delimitation tags to prevent LLM system prompt escaping.
+    Neutralises injection phrases and masks PII, returning plain text.
+
+    Use this for routing, embeddings, caching and persistence. Do NOT embed the
+    delimiter-wrapped form from ``sanitize_and_isolate_prompt``: the shared wrapper
+    tokens would inflate cosine similarity between unrelated queries.
     """
     cleaned_input = user_input
     for pattern in PROMPT_INJECTION_PATTERNS:
-        cleaned_input = pattern.sub("[BLOCKED_INSTRUCTION_OVERRIDE]", cleaned_input)
-        
-    # Apply PII filter
+        cleaned_input = pattern.sub(INJECTION_PLACEHOLDER, cleaned_input)
     cleaned_input, _ = mask_pii(cleaned_input)
-    
-    # Wrap in strict isolation block
-    isolated_prompt = f"### USER_INPUT ###\n{cleaned_input.strip()}\n### END_USER_INPUT ###"
-    return isolated_prompt
+    return cleaned_input.strip()
+
+
+def sanitize_and_isolate_prompt(user_input: str) -> str:
+    """
+    Sanitises input and wraps it in strict delimitation tags so it can be embedded in
+    an LLM prompt without escaping the system instructions.
+    """
+    return f"### USER_INPUT ###\n{sanitize_user_input(user_input)}\n### END_USER_INPUT ###"

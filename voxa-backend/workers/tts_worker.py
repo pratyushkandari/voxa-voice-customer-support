@@ -1,3 +1,9 @@
+"""
+TTS worker: consumes answer text from ``stream:tts:synthesize`` (group ``tts_group``),
+synthesises MP3 audio with edge-tts (Microsoft's online neural voices, so this worker
+needs outbound internet access) and publishes it as an ``audio_response`` event on the
+session's Pub/Sub channel for the gateway to forward.
+"""
 import asyncio
 import base64
 import json
@@ -6,6 +12,7 @@ import uuid
 import edge_tts
 import redis.asyncio as aioredis
 from app.config import settings
+from app.queue_manager import session_channel
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +22,7 @@ class TTSWorker:
     def __init__(self, voice: str = settings.TTS_VOICE, redis_url: str = settings.REDIS_URL):
         self.worker_id = f"tts-worker-{str(uuid.uuid4())[:8]}"
         self.redis_url = redis_url
-        self.stream_name = "stream:tts:synthesize"
+        self.stream_name = settings.STREAM_TTS_SYNTHESIS
         self.group_name = "tts_group"
         self.voice = voice
 
@@ -25,10 +32,9 @@ class TTSWorker:
         while True:
             try:
                 await redis.set(f"worker:heartbeat:tts:{self.worker_id}", str(time.time()), ex=10)
-                await asyncio.sleep(5)
             except Exception as e:
                 logger.error(f"TTS Heartbeat emission failed: {e}")
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
     async def synthesize_to_bytes(self, text: str) -> bytes:
         """Synthesizes text to MP3 audio bytes using edge-tts."""
@@ -53,8 +59,7 @@ class TTSWorker:
             logger.info(f"🎙️ Synthesized audio for session {session_id} in {latency_ms}ms ({len(audio_bytes)} bytes)")
 
             # Publish audio stream event to session Pub/Sub channel
-            channel = f"token:stream:{session_id}"
-            await redis.publish(channel, json.dumps({
+            await redis.publish(session_channel(session_id), json.dumps({
                 "type": "audio_response",
                 "audio_data": audio_b64,
                 "latency_ms": latency_ms,
@@ -63,6 +68,8 @@ class TTSWorker:
 
             await redis.xack(self.stream_name, self.group_name, msg_id)
         except Exception as e:
+            # Audio is best-effort: the text answer was already streamed by the LLM worker,
+            # so a synthesis failure is logged and ACKed rather than retried.
             logger.error(f"TTS synthesis failed for task {msg_id}: {e}")
             await redis.xack(self.stream_name, self.group_name, msg_id)
 
@@ -73,7 +80,8 @@ class TTSWorker:
         except Exception:
             pass
 
-        asyncio.create_task(self.emit_heartbeat(redis))
+        # Keep a reference: asyncio only holds weak references to running tasks.
+        self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
         logger.info(f"🚀 TTS Worker {self.worker_id} started listening on {self.stream_name}...")
 
         while True:
@@ -89,7 +97,7 @@ class TTSWorker:
                 if not events:
                     continue
 
-                for stream_key, messages in events:
+                for _stream_key, messages in events:
                     for msg_id, payload in messages:
                         await self.process_task(msg_id, payload, redis)
             except Exception as e:

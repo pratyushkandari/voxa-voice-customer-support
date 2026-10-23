@@ -16,8 +16,14 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 
 COPY . /app
 
+# Run as an unprivileged user (uid 1001); its home holds the HuggingFace model cache.
+RUN useradd --create-home --uid 1001 voxa && chown -R voxa:voxa /app
+USER voxa
+
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# One worker per container: Prometheus metrics and WebSocket gauges are process-local,
+# so scale out with more containers/replicas (each scraped separately), not --workers.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

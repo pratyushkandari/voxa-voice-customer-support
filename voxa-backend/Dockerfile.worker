@@ -1,4 +1,4 @@
-# Production Dockerfile for Decoupled AI Compute Workers (STT & LLM)
+# Production Dockerfile for Decoupled AI Compute Workers (STT, LLM, TTS, supervisor)
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -16,6 +16,10 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
     pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
+
+# Run as an unprivileged user (uid 1001); its home holds the Whisper / HuggingFace caches.
+RUN useradd --create-home --uid 1001 voxa && chown -R voxa:voxa /app
+USER voxa
 
 ENV PYTHONUNBUFFERED=1
 
