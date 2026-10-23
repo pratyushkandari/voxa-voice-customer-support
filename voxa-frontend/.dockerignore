@@ -1,0 +1,6 @@
+# Host-installed node_modules (often built for another OS) and build output must not
+# leak into the image: the Dockerfile installs and builds from scratch.
+node_modules
+.next
+.env*
+npm-debug.log*

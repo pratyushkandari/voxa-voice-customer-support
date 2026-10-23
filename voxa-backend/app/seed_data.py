@@ -1,15 +1,21 @@
+"""
+Idempotent demo-data seeding: admin/demo users, three sample orders and the RAG
+knowledge base (with embeddings). Runs on every gateway start; each block is skipped
+when its data already exists. Run standalone with ``python -m app.seed_data``.
+"""
 import asyncio
-import uuid
-from datetime import datetime, timezone, timedelta
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.database import AsyncSessionLocal, init_db
-from app.models import User, Order, KnowledgeBase
-from app.auth import get_password_hash
-from app.rag_engine import rag_engine
 import logging
+import uuid
+from datetime import datetime, timedelta, timezone
 
-logging.basicConfig(level=logging.INFO)
+from sqlalchemy import select
+
+from app.auth import get_password_hash_async
+from app.config import settings
+from app.database import AsyncSessionLocal, init_db
+from app.models import KnowledgeBase, Order, User
+from app.rag_engine import rag_engine
+
 logger = logging.getLogger("voxa.seed")
 
 DEFAULT_KNOWLEDGE_DOCS = [
@@ -36,9 +42,7 @@ DEFAULT_KNOWLEDGE_DOCS = [
 ]
 
 async def seed_database():
-    logger.info("Initializing database schema...")
-    await init_db()
-    
+    """Seeds demo data. Assumes the schema exists (call ``init_db()`` first)."""
     async with AsyncSessionLocal() as db:
         # 1. Seed Admin & Demo Users
         admin_check = await db.execute(select(User).where(User.email == "admin@voxa.ai"))
@@ -47,13 +51,13 @@ async def seed_database():
             admin_user = User(
                 id=uuid.uuid4(),
                 email="admin@voxa.ai",
-                hashed_password=get_password_hash("adminpassword123"),
+                hashed_password=await get_password_hash_async(settings.SEED_ADMIN_PASSWORD),
                 role="admin"
             )
             demo_user = User(
                 id=uuid.uuid4(),
                 email="demo@voxa.ai",
-                hashed_password=get_password_hash("demopassword123"),
+                hashed_password=await get_password_hash_async("demopassword123"),
                 role="user"
             )
             db.add_all([admin_user, demo_user])
@@ -96,7 +100,7 @@ async def seed_database():
             logger.info("Generating embeddings and seeding RAG knowledge base...")
             kb_entries = []
             for doc in DEFAULT_KNOWLEDGE_DOCS:
-                embedding_vec = rag_engine.generate_embedding(doc["content"])
+                embedding_vec = await rag_engine.generate_embedding_async(doc["content"])
                 kb_entries.append(KnowledgeBase(
                     topic=doc["topic"],
                     content=doc["content"],
@@ -107,5 +111,11 @@ async def seed_database():
             
         logger.info("🎉 Database seeding completed successfully!")
 
+async def _main():
+    await init_db()
+    await seed_database()
+
+
 if __name__ == "__main__":
-    asyncio.run(seed_database())
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(_main())

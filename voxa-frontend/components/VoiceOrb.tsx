@@ -10,6 +10,11 @@ interface VoiceOrbProps {
 
 export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, audioLevel = 0 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Props are read through a ref so ONE animation loop runs for the component's lifetime.
+  // Restarting the loop on every prop change (audioLevel updates many times a second)
+  // reset the wave phase and made the orb stutter.
+  const propsRef = useRef({ isSpeaking, isListening, audioLevel });
+  propsRef.current = { isSpeaking, isListening, audioLevel };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -21,6 +26,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, aud
     let phase = 0;
 
     const render = () => {
+      const { isSpeaking, isListening, audioLevel } = propsRef.current;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
@@ -99,7 +105,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, aud
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isSpeaking, isListening, audioLevel]);
+  }, []);
 
   return (
     <div className="relative flex items-center justify-center">
@@ -108,6 +114,7 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, aud
         width={260}
         height={260}
         className="w-[220px] h-[220px] transition-transform duration-300 transform"
+        aria-hidden="true"
       />
     </div>
   );

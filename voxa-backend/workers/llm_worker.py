@@ -1,19 +1,53 @@
+"""
+LLM ("reasoning") worker: consumes prompts from ``stream:llm:inference`` (group
+``llm_group``), produces an answer and streams it word-by-word to the session's Pub/Sub
+channel ``token:stream:{session_id}``. Voice-originated prompts are also forwarded to
+the TTS stream.
+
+Answer generation today is deterministic: tool intents (order lookup, refund check,
+human escalation) are executed against PostgreSQL, and everything else is answered with
+the best-matching knowledge-base passage from pgvector. ``LLM_MODEL_NAME`` names the
+generative model this worker is designed to host, but no generative model is loaded yet.
+"""
 import asyncio
 import json
+import logging
 import time
 import uuid
-import re
+from typing import List, Optional, Tuple
+
 import redis.asyncio as aioredis
-from typing import List, Dict, Any, Tuple
-import edge_tts
+
+from app.agent_tools import detect_tool_intent, execute_tool_call
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.agent_tools import execute_tool_call
+from app.queue_manager import session_channel
 from app.rag_engine import rag_engine
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.llm_worker")
+
+MAX_ATTEMPTS = 3
+FALLBACK_POLICY_ANSWER = (
+    "Thank you for contacting Voxa support! All purchases include a 30-day "
+    "money-back guarantee and 1-year manufacturer warranty. Domestic orders arrive in "
+    "3 to 5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
+)
+
+
+def format_tool_response(tool_name: str, tool_result: dict) -> str:
+    """Renders a tool result as a customer-facing sentence (handles 'not found' results)."""
+    if tool_name in ("lookup_order", "check_refund_eligibility") and not tool_result.get("found"):
+        return tool_result.get("message", "I could not find that order. Please double check the ID.")
+    if tool_name == "lookup_order":
+        return (f"Order {tool_result.get('order_id')} ({tool_result.get('item_name')}) is currently "
+                f"{tool_result.get('status')}. Tracking number: {tool_result.get('tracking_number')}.")
+    if tool_name == "check_refund_eligibility":
+        verdict = "Eligible for full refund" if tool_result.get("eligible") else "Ineligible for refund"
+        return f"Order {tool_result.get('order_id')}: {verdict} ({tool_result.get('reason')})."
+    return (f"I have escalated your request to a human supervisor (Ticket ID: {tool_result.get('ticket_id')}). "
+            f"Priority: {tool_result.get('priority')}.")
+
 
 class LLMWorker:
     def __init__(self, model_name: str = settings.LLM_MODEL_NAME, redis_url: str = settings.REDIS_URL):
@@ -21,168 +55,133 @@ class LLMWorker:
         self.redis_url = redis_url
         self.stream_name = settings.STREAM_LLM_INFERENCE
         self.group_name = "llm_group"
-        self.batch_window_ms = 15 # 15ms dynamic micro-batching window
+        self.batch_window_ms = 15  # XREADGROUP block time used to coalesce a micro-batch
         self.max_batch_size = 8
-        self.tts_voice = settings.TTS_VOICE
-
-        logger.info(f"🧠 Pre-warming LLM [{model_name}] in INT8 quantized runtime...")
-        # Scaffolds model runner
-        logger.info("✅ Qwen2.5-0.5B-Instruct pre-warmed and ready for dynamic micro-batching.")
+        logger.info(
+            f"🧠 LLM worker {self.worker_id} ready (deterministic tool routing + pgvector RAG; "
+            f"generative model '{model_name}' is not loaded)."
+        )
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
             try:
                 await redis.set(f"worker:heartbeat:llm:{self.worker_id}", str(time.time()), ex=10)
-                await asyncio.sleep(5)
             except Exception as e:
                 logger.error(f"Heartbeat emission failed: {e}")
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
-    async def synthesize_voice(self, text_content: str, output_path: str = "response.mp3") -> bool:
-        """Async neural voice generation via edge-tts."""
+    async def generate_response(self, prompt: str, user_id: Optional[str]) -> str:
+        """Resolves a prompt to an answer via tool routing or knowledge-base retrieval."""
+        has_tool, tool_name, tool_args = detect_tool_intent(prompt)
+        if has_tool:
+            parsed_uid = None
+            if user_id and user_id != "guest":
+                try:
+                    parsed_uid = uuid.UUID(str(user_id))
+                except (ValueError, TypeError):
+                    parsed_uid = None
+            async with AsyncSessionLocal() as db:
+                tool_result = await execute_tool_call(tool_name, tool_args, parsed_uid, db)
+            return format_tool_response(tool_name, tool_result)
+
+        async with AsyncSessionLocal() as db:
+            rag_docs = await rag_engine.search_knowledge_base(prompt, db, limit=2)
+        if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
+            return f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
+        return FALLBACK_POLICY_ANSWER
+
+    async def process_message(self, msg_id: str, payload: dict, redis: aioredis.Redis):
+        """Handles one task end-to-end. Never raises: failures are retried, then DLQ'd."""
+        session_id = payload.get("session_id", "unknown")
+        trace_id = payload.get("trace_id", "unknown")
+        retry_count = int(payload.get("retry_count", 0))
+        channel = session_channel(session_id)
+        start_time = time.time()
+
         try:
-            communicate = edge_tts.Communicate(text_content, self.tts_voice)
-            await communicate.save(output_path)
-            return True
+            response_text = await self.generate_response(payload.get("prompt", ""), payload.get("user_id"))
         except Exception as e:
-            logger.warning(f"edge-tts voice synthesis error: {e}")
-            return False
+            logger.error(f"[{trace_id}] Task {msg_id} failed (attempt {retry_count + 1}): {e}")
+            if retry_count + 1 >= MAX_ATTEMPTS:
+                await redis.xadd(settings.STREAM_DLQ, {
+                    **payload, "origin_stream": self.stream_name, "error": str(e), "failed_worker": self.worker_id
+                }, maxlen=settings.STREAM_MAXLEN, approximate=True)
+                await redis.publish(channel, json.dumps({
+                    "type": "error",
+                    "message": "Sorry, something went wrong while answering. Please try again.",
+                    "trace_id": trace_id,
+                }))
+            else:
+                await redis.xadd(self.stream_name, {**payload, "retry_count": str(retry_count + 1)},
+                                 maxlen=settings.STREAM_MAXLEN, approximate=True)
+            await redis.xack(self.stream_name, self.group_name, msg_id)
+            return
 
-    def detect_tool_call(self, prompt: str) -> Tuple[bool, str, dict]:
-        """Deterministic Intent Router (<10ms) for tool dispatch."""
-        prompt_lower = prompt.lower()
-        
-        # Order lookup intent
-        order_match = re.search(r'ord-\d{4,6}', prompt_lower)
-        if order_match:
-            order_id = order_match.group(0).upper()
-            if "refund" in prompt_lower or "return" in prompt_lower:
-                return True, "check_refund_eligibility", {"order_id": order_id}
-            return True, "lookup_order", {"order_id": order_id}
-            
-        # Human escalation intent
-        if any(w in prompt_lower for w in ["angry", "human", "agent", "manager", "escalate", "terrible", "lawyer"]):
-            return True, "escalate_to_human", {"issue_summary": prompt, "priority": "urgent"}
-            
-        return False, "", {}
+        # Voice pipeline: ask the TTS worker to synthesise the answer
+        if payload.get("origin") == "audio" or payload.get("needs_audio") == "true":
+            try:
+                await redis.xadd(settings.STREAM_TTS_SYNTHESIS, {
+                    "session_id": session_id,
+                    "text": response_text,
+                    "trace_id": trace_id
+                }, maxlen=settings.STREAM_MAXLEN, approximate=True)
+            except Exception as tts_err:
+                logger.warning(f"Could not enqueue TTS synthesis task: {tts_err}")
+
+        # Stream tokens to Redis Pub/Sub (the gateway relays them to the client)
+        ttft_ms = int((time.time() - start_time) * 1000)
+        for token in response_text.split(" "):
+            await redis.publish(channel, json.dumps({
+                "type": "token_chunk",
+                "token": token + " ",
+                "is_final": False,
+                "ttft_ms": ttft_ms,
+                "trace_id": trace_id
+            }))
+            await asyncio.sleep(0.03)
+
+        await redis.publish(channel, json.dumps({
+            "type": "token_chunk",
+            "token": "",
+            "is_final": True,
+            "ttft_ms": ttft_ms,
+            "total_latency_ms": int((time.time() - start_time) * 1000),
+            "trace_id": trace_id
+        }))
+
+        await redis.xack(self.stream_name, self.group_name, msg_id)
 
     async def process_batch(self, batch: List[Tuple[str, dict]], redis: aioredis.Redis):
-        """Processes a dynamic micro-batch of queries simultaneously."""
+        """Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order."""
         logger.info(f"⚡ Processing micro-batch of {len(batch)} items...")
-        
         for msg_id, payload in batch:
-            session_id = payload.get("session_id", "unknown")
-            prompt = payload.get("prompt", "")
-            trace_id = payload.get("trace_id", "unknown")
-            user_id = payload.get("user_id")
-            
-            start_time = time.time()
-            
-            # 1. Deterministic Intent Routing
-            has_tool, tool_name, tool_args = self.detect_tool_call(prompt)
-            if has_tool:
-                parsed_uid = None
-                if user_id and user_id != "guest":
-                    try:
-                        parsed_uid = uuid.UUID(str(user_id))
-                    except (ValueError, TypeError):
-                        parsed_uid = None
-
-                async with AsyncSessionLocal() as db:
-                    tool_result = await execute_tool_call(tool_name, tool_args, parsed_uid, db)
-                
-                if tool_name == "lookup_order":
-                    response_text = f"Order {tool_result.get('order_id')} is currently {tool_result.get('status')}. Tracking number: {tool_result.get('tracking_number')}."
-                elif tool_name == "check_refund_eligibility":
-                    response_text = f"Order {tool_result.get('order_id')}: {'Eligible for full refund' if tool_result.get('eligible') else 'Ineligible for refund'} ({tool_result.get('reason')})."
-                else:
-                    response_text = f"I have escalated your request to a human supervisor (Ticket ID: {tool_result.get('ticket_id')}). Priority: {tool_result.get('priority')}."
-            else:
-                # 2. Dynamic RAG Knowledge Base Retrieval & Synthesis
-                async with AsyncSessionLocal() as db:
-                    rag_docs = await rag_engine.search_knowledge_base(prompt, db, limit=2)
-                    if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
-                        response_text = f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
-                    else:
-                        response_text = (
-                            "Thank you for contacting Voxa support! All purchases include a 30-day "
-                            "money-back guarantee and 1-year manufacturer warranty. Domestic orders arrive in "
-                            "3 to 5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
-                        )
-
-            # 3. Trigger TTS Audio Synthesis if requested (Voice Pipeline)
-            if payload.get("origin") == "audio" or payload.get("needs_audio") == "true":
-                try:
-                    await redis.xadd("stream:tts:synthesize", {
-                        "session_id": session_id,
-                        "text": response_text,
-                        "trace_id": trace_id
-                    })
-                except Exception as tts_err:
-                    logger.warning(f"Could not enqueue TTS synthesis task: {tts_err}")
-
-            # 4. Stream tokens to Redis Pub/Sub
-            tokens = response_text.split(" ")
-            first_token = True
-            ttft_ms = 0
-            
-            channel = f"token:stream:{session_id}"
-            for t in tokens:
-                if first_token:
-                    ttft_ms = int((time.time() - start_time) * 1000)
-                    first_token = False
-                    
-                chunk_payload = json.dumps({
-                    "type": "token_chunk",
-                    "token": t + " ",
-                    "is_final": False,
-                    "ttft_ms": ttft_ms,
-                    "trace_id": trace_id
-                })
-                await redis.publish(channel, chunk_payload)
-                await asyncio.sleep(0.03)
-
-            total_latency_ms = int((time.time() - start_time) * 1000)
-            final_payload = json.dumps({
-                "type": "token_chunk",
-                "token": "",
-                "is_final": True,
-                "ttft_ms": ttft_ms,
-                "total_latency_ms": total_latency_ms,
-                "trace_id": trace_id
-            })
-            await redis.publish(channel, final_payload)
-            
-            # 5. Acknowledge message in Redis Streams
-            await redis.xack(self.stream_name, self.group_name, msg_id)
+            await self.process_message(msg_id, payload, redis)
 
     async def run(self):
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
         try:
             await redis.xgroup_create(self.stream_name, self.group_name, id="0", mkstream=True)
         except Exception:
-            pass
+            pass  # BUSYGROUP: group already exists
 
-        asyncio.create_task(self.emit_heartbeat(redis))
+        # Keep a reference: asyncio only holds weak references to running tasks.
+        self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
         logger.info(f"🚀 LLM Worker {self.worker_id} started listening on {self.stream_name}...")
 
         while True:
             try:
-                # 1. Crash recovery: Check pending unacknowledged tasks for this consumer before new tasks
+                # 1. Crash recovery: this consumer's un-ACKed entries first
                 pending_events = await redis.xreadgroup(
                     groupname=self.group_name,
                     consumername=self.worker_id,
                     streams={self.stream_name: "0"},
                     count=self.max_batch_size
                 )
-                if pending_events:
-                    pending_batch = []
-                    for stream_key, messages in pending_events:
-                        for msg_id, payload in messages:
-                            pending_batch.append((msg_id, payload))
-                    if pending_batch:
-                        logger.info(f"🔄 Recovered {len(pending_batch)} unacknowledged tasks after restart.")
-                        await self.process_batch(pending_batch, redis)
+                pending_batch = [(m_id, p) for _s, msgs in (pending_events or []) for m_id, p in msgs]
+                if pending_batch:
+                    logger.info(f"🔄 Recovered {len(pending_batch)} unacknowledged tasks.")
+                    await self.process_batch(pending_batch, redis)
+                    continue
 
                 # 2. Read new events up to max_batch_size
                 events = await redis.xreadgroup(
@@ -192,21 +191,14 @@ class LLMWorker:
                     count=self.max_batch_size,
                     block=self.batch_window_ms
                 )
-
-                if not events:
-                    continue
-
-                batch = []
-                for stream_key, messages in events:
-                    for msg_id, payload in messages:
-                        batch.append((msg_id, payload))
-
+                batch = [(m_id, p) for _s, msgs in (events or []) for m_id, p in msgs]
                 if batch:
                     await self.process_batch(batch, redis)
 
             except Exception as e:
                 logger.error(f"LLM Worker loop error: {e}")
                 await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     worker = LLMWorker()

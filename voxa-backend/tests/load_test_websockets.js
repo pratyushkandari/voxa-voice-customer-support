@@ -1,3 +1,10 @@
+// k6 WebSocket load test for the gateway's /v1/ws/stream endpoint.
+//
+//   k6 run -e WS_URL=ws://localhost:8088/v1/ws/stream tests/load_test_websockets.js
+//
+// Note: the gateway rate-limits text queries per user / client IP
+// (RATE_LIMIT_REQUESTS_PER_MINUTE, default 30). When every virtual user comes from one
+// machine, raise that limit on the gateway under test or most queries get an "error" frame.
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 
@@ -14,16 +21,15 @@ export const options = {
 };
 
 export default function () {
-  const url = __ENV.WS_URL || 'ws://localhost:8000/v1/ws/stream';
+  const url = __ENV.WS_URL || 'ws://localhost:8088/v1/ws/stream';
   const params = { tags: { my_tag: 'voxa_ws_client' } };
 
   const res = ws.connect(url, params, function (socket) {
     socket.on('open', () => {
-      // Send text query
       socket.send(JSON.stringify({
         type: 'text_query',
         text: 'What is the refund policy for order ORD-88412?',
-        trace_id: `k6-trace-${Date.now()}`
+        trace_id: `k6-trace-${__VU}-${__ITER}`
       }));
     });
 
@@ -34,10 +40,14 @@ export default function () {
           'TTFT is sub-200ms': (m) => m.ttft_ms < 200,
         });
         socket.close();
+      } else if (msg.type === 'error') {
+        check(msg, { 'no error frame': () => false });
+        socket.close();
       }
     });
 
-    socket.on('close', () => {});
+    // Never let a VU hang forever if no final frame arrives
+    socket.setTimeout(() => socket.close(), 15000);
   });
 
   check(res, { 'WebSocket connection successful': (r) => r && r.status === 101 });

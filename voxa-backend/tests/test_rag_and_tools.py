@@ -1,8 +1,7 @@
-import pytest
 import asyncio
 import uuid
 import datetime
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from app.agent_tools import execute_tool_call
 from app.rag_engine import rag_engine
 

@@ -1,48 +1,60 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Headphones, 
-  ShieldCheck, 
-  Database, 
-  Zap, 
-  Activity, 
-  ArrowRight, 
-  MessageSquare, 
-  Clock, 
-  Cpu,
-  CheckCircle2,
-  Lock,
-  Layers
+import {
+  Headphones,
+  ShieldCheck,
+  Database,
+  Zap,
+  Activity,
+  ArrowRight,
+  AlertCircle
 } from 'lucide-react';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
+
+type GatewayStatus = 'checking' | 'online' | 'offline';
 
 export default function LandingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>('checking');
 
+  // Real liveness check against the gateway's /health endpoint.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_URL}/health`, { signal: controller.signal })
+      .then((res) => setGatewayStatus(res.ok ? 'online' : 'offline'))
+      .catch((err) => {
+        if (err?.name !== 'AbortError') setGatewayStatus('offline');
+      });
+    return () => controller.abort();
+  }, []);
+
+  // Creates an ephemeral guest account and opens the console. There is deliberately no
+  // offline fallback: the console cannot answer anything without the gateway.
   const handleStartSession = async () => {
+    if (loading) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088'}/v1/auth/guest-demo`, {
-        method: 'POST',
-      });
-      const data = await res.json();
+      const res = await fetch(`${API_URL}/v1/auth/guest-demo`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.access_token) {
         localStorage.setItem('voxa_token', data.access_token);
         localStorage.setItem('voxa_user', JSON.stringify(data.user));
         router.push('/chat');
-      } else {
-        localStorage.setItem('voxa_token', 'demo-session-token');
-        localStorage.setItem('voxa_user', JSON.stringify({ email: 'support-guest@voxa.io', role: 'user' }));
-        router.push('/chat');
+        return;
       }
+      setError(
+        res.status === 429
+          ? 'Too many sessions were started from this network. Please wait a minute and try again.'
+          : data.detail || `Could not start a session (HTTP ${res.status}).`
+      );
     } catch {
-      localStorage.setItem('voxa_token', 'demo-session-token');
-      localStorage.setItem('voxa_user', JSON.stringify({ email: 'support-guest@voxa.io', role: 'user' }));
-      router.push('/chat');
+      setError(`Cannot reach the support gateway at ${API_URL}. Make sure the backend is running.`);
     } finally {
       setLoading(false);
     }
@@ -73,17 +85,17 @@ export default function LandingPage() {
         <div className="flex items-center gap-3">
           <button 
             onClick={() => router.push('/admin')}
-            className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all"
+            className="hidden sm:inline-flex px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all"
           >
             Operations & Telemetry
           </button>
           <button
             onClick={handleStartSession}
             disabled={loading}
-            className="px-4 py-2 rounded-lg text-xs font-semibold bg-white text-slate-950 hover:bg-slate-200 transition-all shadow-sm flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg text-xs font-semibold bg-white text-slate-950 hover:bg-slate-200 transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait"
           >
             <span>Launch Console</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -103,7 +115,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="mt-6 text-base md:text-lg text-slate-400 max-w-2xl font-normal leading-relaxed">
-          An asynchronous, full-duplex support platform combining sub-180ms speech inference, PostgreSQL vector search, and distributed resilience to automate high-volume inquiries.
+          An asynchronous, full-duplex support platform combining streaming WebSocket responses, PostgreSQL vector search, and distributed resilience to automate high-volume inquiries.
         </p>
 
         {/* Action Controls */}
@@ -111,20 +123,27 @@ export default function LandingPage() {
           <button
             onClick={handleStartSession}
             disabled={loading}
-            className="w-full sm:w-auto px-6 py-3 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
           >
             <span>{loading ? 'Initializing Session...' : 'Start Live Support Session'}</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </button>
 
           <button
             onClick={() => router.push('/admin')}
             className="w-full sm:w-auto px-5 py-3 rounded-xl text-sm font-medium bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-all flex items-center justify-center gap-2"
           >
-            <Activity className="w-4 h-4 text-cyan-400" />
+            <Activity className="w-4 h-4 text-cyan-400" aria-hidden="true" />
             <span>View System Metrics</span>
           </button>
         </div>
+
+        {error && (
+          <div role="alert" className="mt-5 max-w-xl w-full p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2 text-left">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Feature Highlights Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full mt-16 text-left">
@@ -132,9 +151,9 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-3">
               <Zap className="w-4 h-4 text-indigo-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-200">&lt;180ms Response Time</h3>
+            <h3 className="text-sm font-semibold text-slate-200">Streaming Responses</h3>
             <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-              Full-duplex WebSocket streaming with dynamic audio buffering for real-time speech interaction.
+              Full-duplex WebSocket streaming with live time-to-first-token telemetry on every answer.
             </p>
           </div>
 
@@ -144,7 +163,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-sm font-semibold text-slate-200">pgvector RAG & Cache</h3>
             <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-              Resolves 42% of frequent policy and order queries in &lt;15ms via in-memory semantic caching.
+              Repeated policy questions are answered from a Redis semantic cache; order data is always read live from PostgreSQL.
             </p>
           </div>
 
@@ -164,7 +183,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-sm font-semibold text-slate-200">Live SRE Observability</h3>
             <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-              Prometheus telemetry and Grafana dashboards for monitoring P95/P99 latency and queue backpressure.
+              Prometheus metrics plus an operations console for latency, cache hit ratio and queue backlog.
             </p>
           </div>
         </div>
@@ -175,10 +194,14 @@ export default function LandingPage() {
         <div>
           <span>Voxa Customer Support Platform • Real-Time Voice AI Architecture</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4" aria-live="polite">
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Gateway Status: Operational
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                gatewayStatus === 'online' ? 'bg-emerald-400' : gatewayStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            Gateway Status: {gatewayStatus === 'online' ? 'Operational' : gatewayStatus === 'offline' ? 'Unreachable' : 'Checking…'}
           </span>
         </div>
       </footer>

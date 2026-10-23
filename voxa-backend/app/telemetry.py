@@ -1,21 +1,16 @@
+"""
+Prometheus metrics and the correlation-ID / latency middleware.
+
+Metrics live in the process-local default registry, which is why the gateway runs a
+single uvicorn worker per container and scales by adding replicas (each scraped
+separately) instead of ``--workers N``.
+"""
 import time
 import uuid
+
 from fastapi import Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
-try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-except ImportError:
-    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
-    class _MockMetric:
-        def __init__(self, *args, **kwargs): pass
-        def labels(self, *args, **kwargs): return self
-        def observe(self, *args, **kwargs): pass
-        def inc(self, *args, **kwargs): pass
-        def dec(self, *args, **kwargs): pass
-        def set(self, *args, **kwargs): pass
-    Counter = Histogram = Gauge = _MockMetric
-    def generate_latest():
-        return b"# HELP http_request_duration_seconds HTTP request latency in seconds\n"
 
 # ================= Prometheus Metrics Definition =================
 
@@ -32,18 +27,7 @@ LLM_TTFT_HISTOGRAM = Histogram(
     buckets=[0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0]
 )
 
-REDIS_QUEUE_DEPTH = Gauge(
-    "redis_queue_depth",
-    "Current depth of task queues in Redis Streams",
-    ["queue_name"]
-)
-
-ACTIVE_WORKER_COUNT = Gauge(
-    "active_worker_count",
-    "Number of active, healthy inference worker daemons",
-    ["worker_type"]
-)
-
+# Exposed as semantic_cache_hit_total / semantic_cache_miss_total
 SEMANTIC_CACHE_HITS = Counter(
     "semantic_cache_hit_total",
     "Total number of successful semantic cache hits"
@@ -51,7 +35,7 @@ SEMANTIC_CACHE_HITS = Counter(
 
 SEMANTIC_CACHE_MISSES = Counter(
     "semantic_cache_miss_total",
-    "Total number of semantic cache misses requiring LLM inference"
+    "Total number of semantic cache misses requiring retrieval or inference"
 )
 
 WEBSOCKET_ACTIVE_CONNECTIONS = Gauge(
@@ -59,23 +43,37 @@ WEBSOCKET_ACTIVE_CONNECTIONS = Gauge(
     "Number of currently open WebSocket connections"
 )
 
+
+def gauge_value(gauge: Gauge) -> float:
+    """Reads an unlabelled gauge through the public collect() API."""
+    for metric in gauge.collect():
+        for sample in metric.samples:
+            return sample.value
+    return 0.0
+
 # ================= Correlation ID & Latency Middleware =================
+
 
 class TelemetryMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # 1. Extract or generate X-Correlation-ID / trace_id
         trace_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
         request.state.trace_id = trace_id
-        
+
         start_time = time.time()
-        
+
         # 2. Process the request
         response: Response = await call_next(request)
-        
+
         # 3. Calculate latency and record Prometheus metrics
         duration = time.time() - start_time
-        endpoint = request.url.path
-        
+
+        # Label by the route *template* (e.g. /v1/tools/order/{order_id}), never the raw
+        # path: raw paths put user-controlled IDs into label values and every distinct
+        # value creates a new time series (unbounded memory / cardinality explosion).
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", None) or "unmatched"
+
         # Don't record metrics for the prometheus scraper itself
         if endpoint != "/metrics":
             HTTP_REQUEST_DURATION.labels(
@@ -83,10 +81,11 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
                 endpoint=endpoint,
                 status_code=response.status_code
             ).observe(duration)
-            
+
         # 4. Inject trace header into response
         response.headers["X-Correlation-ID"] = trace_id
         return response
+
 
 def get_prometheus_metrics():
     """Returns Prometheus exposition format metrics."""
