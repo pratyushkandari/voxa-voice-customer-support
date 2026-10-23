@@ -14,318 +14,496 @@
 })();
 </script>
 <style>
+/* ---------- colour tokens (palette follows the Voxa console: indigo + cyan) ---------- */
 :root {
-  --bg: #f6f6f3;
+  --bg: #f3f5fb;
   --surface: #ffffff;
-  --surface-2: #efefeb;
-  --text: #1d1e20;
-  --muted: #585c63;
-  --border: #dcdad3;
-  --accent: #2b55c7;
+  --surface-2: #eceffa;
+  --text: #151a2d;
+  --muted: #4d5672;
+  --border: #d9deef;
+  --accent: #4338ca;
+  --accent-2: #0e7490;
   --accent-text: #ffffff;
-  --accent-soft: #e6ecfb;
-  --ok: #1d7146;
-  --ok-soft: #e3f2e9;
-  --warn: #8a5300;
-  --warn-soft: #fbf0dc;
-  --bad: #b3261e;
-  --bad-soft: #fbe7e5;
-  --info: #5b3fa8;
-  --info-soft: #eee9f9;
-  --code-bg: #f1f0ec;
+  --accent-soft: #eaecff;
+  --accent-2-soft: #e1f5f9;
+  --ok: #166a43;
+  --ok-soft: #e2f4ea;
+  --warn: #8a4b00;
+  --warn-soft: #fdf0db;
+  --bad: #b42318;
+  --bad-soft: #fde8e6;
+  --info: #6d28d9;
+  --info-soft: #f1eafe;
+  --pink: #be185d;
+  --pink-soft: #fde7f1;
+  --l1: #4338ca;
+  --l2: #0e7490;
+  --l3: #7c3aed;
+  --la: #475569;
+  --code-bg: #eef0f9;
+  --code-text: #3730a3;
+  --pre-bg: #0f1629;
+  --pre-text: #e3e8f7;
+  --pre-border: #222c4a;
+  --th-bg: #e8ebfa;
+  --zebra: #f8f9fe;
   --mark: #fde68a;
-  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
-  --radius: 10px;
-  --sidebar-w: 290px;
+  --hero-a: #3730a3;
+  --hero-b: #155e75;
+  --shadow: 0 1px 2px rgba(21, 26, 45, .05), 0 4px 16px rgba(21, 26, 45, .06);
+  --shadow-lg: 0 10px 40px rgba(21, 26, 45, .14);
+  --radius: 12px;
+  --sidebar-w: 292px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
+  --sec: var(--accent);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #131416;
-    --surface: #1b1c1f;
-    --surface-2: #24262a;
-    --text: #e7e7e4;
-    --muted: #a3a6ad;
-    --border: #34363b;
-    --accent: #8fb0ff;
-    --accent-text: #0e1220;
-    --accent-soft: #1f2a46;
-    --ok: #6fd39c;
-    --ok-soft: #173326;
-    --warn: #f0b85a;
-    --warn-soft: #3a2b12;
-    --bad: #ff8a80;
-    --bad-soft: #3d1c1a;
-    --info: #c3b1ff;
-    --info-soft: #2b2342;
-    --code-bg: #22242a;
+    --bg: #0a0f1d;
+    --surface: #111829;
+    --surface-2: #182136;
+    --text: #e7eaf6;
+    --muted: #a3abc6;
+    --border: #273151;
+    --accent: #8f95ff;
+    --accent-2: #3fd0e8;
+    --accent-text: #0b0f1f;
+    --accent-soft: #1b2048;
+    --accent-2-soft: #0f2a33;
+    --ok: #5fd49a;
+    --ok-soft: #10291f;
+    --warn: #f3b65a;
+    --warn-soft: #33240e;
+    --bad: #ff8b80;
+    --bad-soft: #3a1717;
+    --info: #c4a8ff;
+    --info-soft: #251b42;
+    --pink: #ff8cc6;
+    --pink-soft: #3a1630;
+    --l1: #8f95ff;
+    --l2: #3fd0e8;
+    --l3: #c4a8ff;
+    --la: #a3abc6;
+    --code-bg: #1b2340;
+    --code-text: #b9bdff;
+    --pre-bg: #060a16;
+    --pre-text: #e3e8f7;
+    --pre-border: #273151;
+    --th-bg: #1a2240;
+    --zebra: #131b2e;
     --mark: #6b5310;
-    --shadow: 0 1px 2px rgba(0,0,0,.4);
+    --hero-a: #312e81;
+    --hero-b: #134e5e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #131416;
-  --surface: #1b1c1f;
-  --surface-2: #24262a;
-  --text: #e7e7e4;
-  --muted: #a3a6ad;
-  --border: #34363b;
-  --accent: #8fb0ff;
-  --accent-text: #0e1220;
-  --accent-soft: #1f2a46;
-  --ok: #6fd39c;
-  --ok-soft: #173326;
-  --warn: #f0b85a;
-  --warn-soft: #3a2b12;
-  --bad: #ff8a80;
-  --bad-soft: #3d1c1a;
-  --info: #c3b1ff;
-  --info-soft: #2b2342;
-  --code-bg: #22242a;
+  --bg: #0a0f1d;
+  --surface: #111829;
+  --surface-2: #182136;
+  --text: #e7eaf6;
+  --muted: #a3abc6;
+  --border: #273151;
+  --accent: #8f95ff;
+  --accent-2: #3fd0e8;
+  --accent-text: #0b0f1f;
+  --accent-soft: #1b2048;
+  --accent-2-soft: #0f2a33;
+  --ok: #5fd49a;
+  --ok-soft: #10291f;
+  --warn: #f3b65a;
+  --warn-soft: #33240e;
+  --bad: #ff8b80;
+  --bad-soft: #3a1717;
+  --info: #c4a8ff;
+  --info-soft: #251b42;
+  --pink: #ff8cc6;
+  --pink-soft: #3a1630;
+  --l1: #8f95ff;
+  --l2: #3fd0e8;
+  --l3: #c4a8ff;
+  --la: #a3abc6;
+  --code-bg: #1b2340;
+  --code-text: #b9bdff;
+  --pre-bg: #060a16;
+  --pre-text: #e3e8f7;
+  --pre-border: #273151;
+  --th-bg: #1a2240;
+  --zebra: #131b2e;
   --mark: #6b5310;
-  --shadow: 0 1px 2px rgba(0,0,0,.4);
+  --hero-a: #312e81;
+  --hero-b: #134e5e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
   color-scheme: dark;
 }
 
+/* Each layer gets its own accent colour, used by headings, banners and markers. */
+:is(#top, #overview, #summary, #pitches, #stack, #architecture, #setup, #status, #layer1) { --sec: var(--l1); }
+#layer2, #layer2-zone { --sec: var(--l2); }
+#layer3, #layer3-zone { --sec: var(--l3); }
+:is(#appendix, #ledger, #discrepancies, #validation, #glossary) { --sec: var(--la); }
+
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: 16.5px;
-  line-height: 1.65;
+  line-height: 1.68;
   overflow-x: hidden;
 }
-a { color: var(--accent); text-underline-offset: 2px; }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 a:hover { text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--accent-soft); }
 .skip-link { position: absolute; left: -9999px; top: 8px; z-index: 100; background: var(--accent); color: var(--accent-text); padding: 8px 14px; border-radius: 8px; }
 .skip-link:focus { left: 12px; }
 
 /* ---------- top bar ---------- */
 .topbar {
   position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px;
+  background: var(--surface); /* fallback for browsers without color-mix() */
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
   border-bottom: 1px solid var(--border);
-  backdrop-filter: saturate(150%) blur(8px);
-  -webkit-backdrop-filter: saturate(150%) blur(8px);
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-backdrop-filter: saturate(160%) blur(10px);
 }
-.brand { font-weight: 700; font-size: 15px; white-space: nowrap; letter-spacing: -.01em; }
-.brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 15px; white-space: nowrap; letter-spacing: -.01em; }
+.brand .logo {
+  width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #4f46e5, #0891b2); color: #fff; font-size: 15px; font-weight: 800;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, .35);
+}
+.brand small { font-weight: 500; color: var(--muted); margin-left: 2px; }
 .crumb { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
-.searchwrap { position: relative; flex: 0 1 340px; min-width: 120px; }
+.crumb:not(:empty)::before { content: "›"; margin-right: 8px; color: var(--accent); font-weight: 700; }
+.searchwrap { position: relative; flex: 0 1 360px; min-width: 120px; }
 .searchwrap input {
-  width: 100%; padding: 8px 12px 8px 32px; font: inherit; font-size: 14px;
-  color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  width: 100%; padding: 8px 12px 8px 34px; font: inherit; font-size: 14px;
+  color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  transition: border-color .15s, box-shadow .15s;
 }
-.searchwrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+.searchwrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.searchwrap svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
 .search-results {
-  position: absolute; top: calc(100% + 6px); right: 0; width: min(520px, calc(100vw - 32px));
-  max-height: 65vh; overflow: auto; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 6px; display: none;
+  position: absolute; top: calc(100% + 8px); right: 0; width: min(540px, calc(100vw - 32px));
+  max-height: 66vh; overflow: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 6px; display: none;
 }
 .search-results.open { display: block; }
-.search-results a { display: block; padding: 8px 10px; border-radius: 8px; text-decoration: none; color: var(--text); }
-.search-results a:hover, .search-results a.active { background: var(--accent-soft); }
-.search-results .r-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.search-results a { display: block; padding: 9px 11px; border-radius: 9px; text-decoration: none; color: var(--text); border-left: 3px solid transparent; }
+.search-results a:hover, .search-results a.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.search-results .r-kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--accent-2); }
 .search-results .r-title { font-size: 14px; font-weight: 600; display: block; }
 .search-results .r-ctx { font-size: 12.5px; color: var(--muted); display: block; }
-.search-results .r-empty { padding: 10px; font-size: 14px; color: var(--muted); }
+.search-results .r-empty { padding: 12px; font-size: 14px; color: var(--muted); }
 .iconbtn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-width: 36px; height: 36px; padding: 0 10px; border-radius: 8px;
+  min-width: 36px; height: 36px; padding: 0 11px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  font: inherit; font-size: 13px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s;
 }
-.iconbtn:hover { background: var(--surface-2); }
+.iconbtn:hover { background: var(--accent-soft); border-color: var(--accent); }
 .iconbtn svg { width: 16px; height: 16px; }
 #menuBtn { display: none; }
-.progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 60; }
+.progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: linear-gradient(90deg, #4f46e5, #06b6d4, #ec4899); z-index: 60; }
 
 /* ---------- layout ---------- */
 .layout { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
 .sidebar {
   position: sticky; top: 57px; align-self: start; height: calc(100vh - 57px); overflow-y: auto;
-  border-right: 1px solid var(--border); padding: 14px 10px 40px; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 14px 12px 40px; background: var(--surface);
 }
-.sidebar h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 18px 10px 6px; }
+.sidebar h2 {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 20px 10px 6px;
+}
+.sidebar h2::before { content: ""; width: 8px; height: 8px; border-radius: 3px; background: var(--muted); flex: 0 0 auto; }
+.sidebar h2:nth-of-type(2)::before { background: var(--l1); }
+.sidebar h2:nth-of-type(3)::before { background: var(--l2); }
+.sidebar h2:nth-of-type(4)::before { background: var(--l3); }
+.sidebar h2:nth-of-type(5)::before { background: var(--la); }
 .sidebar ol { list-style: none; margin: 0; padding: 0; }
-.sidebar a { display: block; padding: 5px 10px; border-radius: 7px; font-size: 14px; color: var(--text); text-decoration: none; line-height: 1.35; }
+.sidebar a { display: block; padding: 6px 10px; border-radius: 8px; font-size: 14px; color: var(--text); text-decoration: none; line-height: 1.35; border-left: 3px solid transparent; }
 .sidebar a:hover { background: var(--surface-2); }
-.sidebar a.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.sidebar .sub a { padding-left: 22px; font-size: 13px; color: var(--muted); }
+.sidebar a.current { background: var(--accent-soft); color: var(--accent); font-weight: 650; border-left-color: var(--accent); }
+.sidebar .sub a { padding-left: 24px; font-size: 13px; color: var(--muted); }
 .sidebar .sub a.current { color: var(--accent); }
-main { padding: 28px 20px 80px; min-width: 0; }
-.content { max-width: 880px; margin: 0 auto; }
+main { padding: 30px 24px 80px; min-width: 0; }
+.content { max-width: 900px; margin: 0 auto; }
 
 /* ---------- typography ---------- */
-h1 { font-size: clamp(28px, 4vw, 38px); line-height: 1.15; letter-spacing: -.02em; margin: 8px 0 12px; }
-h2 { font-size: clamp(23px, 3vw, 28px); line-height: 1.2; letter-spacing: -.015em; margin: 56px 0 12px; padding-top: 8px; }
-h3 { font-size: 20px; line-height: 1.3; margin: 34px 0 8px; }
-h4 { font-size: 16.5px; margin: 24px 0 6px; }
+h1 { font-size: clamp(28px, 4.2vw, 40px); line-height: 1.12; letter-spacing: -.025em; margin: 8px 0 12px; }
+h2 {
+  position: relative; font-size: clamp(23px, 3vw, 29px); line-height: 1.2; letter-spacing: -.015em;
+  margin: 60px 0 14px; padding: 6px 0 10px 16px; border-bottom: 1px solid var(--border);
+}
+h2::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 12px; width: 5px; border-radius: 4px; background: var(--sec); }
+h3 { font-size: 20px; line-height: 1.3; margin: 36px 0 10px; color: var(--text); }
+h3::after { content: ""; display: block; width: 36px; height: 3px; border-radius: 3px; margin-top: 6px; background: var(--sec); opacity: .7; }
+h4 { font-size: 16.5px; margin: 24px 0 6px; color: var(--sec); }
 p, ul, ol { margin: 0 0 14px; }
 li { margin: 4px 0; }
+li::marker { color: var(--sec); }
+strong { font-weight: 680; }
 .lead { font-size: 18px; color: var(--muted); }
+
+/* hero */
+.hero {
+  position: relative; overflow: hidden; margin: 0 0 24px; padding: 28px 28px 24px; border-radius: 18px; color: #fff;
+  background: linear-gradient(125deg, var(--hero-a) 0%, #4338ca 40%, var(--hero-b) 100%);
+  box-shadow: var(--shadow-lg);
+}
+.hero::after {
+  content: ""; position: absolute; right: -80px; top: -90px; width: 320px; height: 320px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .16), transparent 65%); pointer-events: none;
+}
+.hero h1 { color: #fff; margin-top: 6px; }
+.hero .lead { color: rgba(255, 255, 255, .9); margin-bottom: 18px; }
+.hero .small { color: rgba(255, 255, 255, .85); }
+.hero code { background: rgba(255, 255, 255, .16); color: #fff; }
+.hero-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.hero-stats li {
+  margin: 0; padding: 6px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
+  background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .28); color: #fff;
+}
+.hero-stats li b { font-weight: 800; }
+
+/* layer banners */
 .layer-banner {
-  margin: 64px 0 8px; padding: 18px 20px; border-radius: var(--radius);
-  background: var(--accent-soft); border: 1px solid var(--border);
+  position: relative; overflow: hidden; margin: 72px 0 10px; padding: 22px 24px; border-radius: 16px;
+  background: linear-gradient(120deg, var(--surface) 0%, var(--surface) 55%, var(--accent-soft) 100%);
+  border: 1px solid var(--border); border-top: 4px solid var(--sec); box-shadow: var(--shadow);
 }
-.layer-banner .kicker { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
-.layer-banner h2 { margin: 4px 0 4px; padding: 0; }
+.layer-banner .kicker {
+  display: inline-block; font-size: 11.5px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800;
+  color: var(--sec); background: var(--surface-2); padding: 3px 10px; border-radius: 999px;
+}
+.layer-banner h2 { margin: 8px 0 4px; padding: 0; border: 0; }
+.layer-banner h2::before { display: none; }
 .layer-banner p { margin: 0; color: var(--muted); }
-.section-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
-code, kbd, pre { font-family: var(--mono); font-size: .9em; }
-code { background: var(--code-bg); padding: .1em .35em; border-radius: 5px; overflow-wrap: anywhere; }
+.section-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+
+/* code */
+code, kbd, pre { font-family: var(--mono); font-size: .88em; }
+code { background: var(--code-bg); color: var(--code-text); padding: .12em .4em; border-radius: 6px; overflow-wrap: anywhere; }
+kbd { display: inline-block; padding: .05em .45em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; background: var(--surface); color: var(--text); }
 pre {
-  position: relative; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
-  padding: 14px 16px; overflow-x: auto; line-height: 1.5; margin: 0 0 16px; font-size: 13.5px;
+  position: relative; background: var(--pre-bg); color: var(--pre-text); border: 1px solid var(--pre-border); border-radius: 10px;
+  padding: 16px 18px; padding-right: 76px; overflow-x: auto; line-height: 1.55; margin: 0 0 16px; font-size: 13.5px;
+  box-shadow: inset 4px 0 0 var(--sec);
 }
-pre code { background: none; padding: 0; overflow-wrap: normal; }
+pre code { background: none; color: inherit; padding: 0; overflow-wrap: normal; }
 .copy-btn {
-  position: absolute; top: 6px; right: 6px; font: inherit; font-family: var(--font); font-size: 12px;
-  padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer;
+  position: absolute; top: 8px; right: 8px; font-family: var(--font); font-size: 12px; font-weight: 600;
+  padding: 4px 10px; border-radius: 7px; border: 1px solid #3a4670; background: #1a2340; color: #e3e8f7; cursor: pointer;
 }
-.copy-btn:hover { background: var(--surface-2); }
+.copy-btn:hover { background: #2a3560; }
 mark.hit { background: var(--mark); color: inherit; border-radius: 3px; }
 .flash { animation: flash 1.6s ease-out; }
 @keyframes flash { 0% { box-shadow: 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 
-/* ---------- components ---------- */
-.tbl { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+/* ---------- tables ---------- */
+.tbl { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
 table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
-th, td { text-align: left; vertical-align: top; padding: 9px 11px; border-bottom: 1px solid var(--border); }
-th { background: var(--surface-2); font-weight: 650; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th { background: var(--th-bg); font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+tbody tr:nth-child(even) td { background: var(--zebra); }
+tbody tr:hover td { background: var(--accent-soft); }
 tr:last-child td { border-bottom: 0; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin: 0 0 16px; box-shadow: var(--shadow); }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 0 0 16px; }
+td:first-child { font-weight: 550; }
+
+/* ---------- cards, callouts, badges ---------- */
+.card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--sec); border-radius: var(--radius); padding: 16px 18px; margin: 0 0 16px; box-shadow: var(--shadow); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 0 0 18px; }
 .grid2 .card { margin: 0; }
-.callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 16px; }
+.grid2 .card:nth-child(2) { border-top-color: var(--accent-2); }
+.callout { position: relative; border: 1px solid var(--border); border-left: 5px solid var(--accent); background: var(--accent-soft); padding: 14px 18px 14px 46px; border-radius: 12px; margin: 0 0 18px; }
+.callout::before {
+  content: "i"; position: absolute; left: 14px; top: 14px; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; font-family: Georgia, serif;
+  background: var(--accent); color: var(--accent-text);
+}
 .callout > :last-child { margin-bottom: 0; }
-.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
-.callout.bad { border-color: var(--bad); background: var(--bad-soft); }
-.callout.ok { border-color: var(--ok); background: var(--ok-soft); }
-.callout.info { border-color: var(--info); background: var(--info-soft); }
-.callout .ct { font-weight: 700; display: block; margin-bottom: 2px; }
+.callout ul, .callout ol { padding-left: 22px; }
+.callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+.callout.warn::before { content: "!"; background: var(--warn); font-family: var(--font); }
+.callout.bad { border-left-color: var(--bad); background: var(--bad-soft); }
+.callout.bad::before { content: "!"; background: var(--bad); font-family: var(--font); }
+.callout.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+.callout.ok::before { content: "✓"; background: var(--ok); font-family: var(--font); }
+.callout.info { border-left-color: var(--info); background: var(--info-soft); }
+.callout.info::before { background: var(--info); }
+.callout.warn::before, .callout.bad::before, .callout.ok::before, .callout.info::before { color: var(--surface); }
+.callout .ct { font-weight: 750; display: block; margin-bottom: 4px; }
 .badge {
-  display: inline-block; font-size: 11.5px; font-weight: 650; line-height: 1; letter-spacing: .02em;
-  padding: 4px 7px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; white-space: nowrap;
+  display: inline-block; font-size: 11.5px; font-weight: 700; line-height: 1; letter-spacing: .02em;
+  padding: 5px 9px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; white-space: nowrap;
 }
-.b-impl { color: var(--ok); }
-.b-conf { color: var(--accent); }
-.b-inf { color: var(--warn); }
-.b-unv { color: var(--bad); }
-.b-prop { color: var(--info); }
-.b-user { color: var(--warn); }
-.b-lvl { color: var(--muted); }
+.b-impl { color: var(--ok); background: var(--ok-soft); }
+.b-conf { color: var(--accent-2); background: var(--accent-2-soft); }
+.b-inf { color: var(--warn); background: var(--warn-soft); }
+.b-unv { color: var(--bad); background: var(--bad-soft); }
+.b-prop { color: var(--info); background: var(--info-soft); }
+.b-user { color: var(--pink); background: var(--pink-soft); }
+.b-lvl { color: var(--muted); background: var(--surface-2); }
+.badge.lvl-intro { color: var(--ok); background: var(--ok-soft); }
+.badge.lvl-mid { color: var(--accent-2); background: var(--accent-2-soft); }
+.badge.lvl-adv { color: var(--warn); background: var(--warn-soft); }
+.badge.lvl-curve { color: var(--pink); background: var(--pink-soft); }
+.badge.cat { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .src { text-decoration: none; }
-.src code { color: var(--accent); }
-.src:hover code { text-decoration: underline; }
-.levels { display: grid; gap: 10px; margin: 0 0 18px; }
-.lv { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.src code { color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; }
+.src:hover code { border-color: var(--accent); }
+
+/* three-level teaching blocks */
+.levels { display: grid; gap: 10px; margin: 0 0 20px; }
+.lv { border: 1px solid var(--border); border-left: 5px solid var(--border); border-radius: 10px; padding: 13px 16px; background: var(--surface); box-shadow: var(--shadow); }
 .lv > :last-child { margin-bottom: 0; }
-.lv .lt { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 4px; }
-.lv.l1 .lt { color: var(--ok); }
-.lv.l2 .lt { color: var(--accent); }
-.lv.l3 .lt { color: var(--info); }
-details { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin: 0 0 10px; }
+.lv .lt { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; display: inline-block; margin-bottom: 6px; padding: 2px 9px; border-radius: 999px; }
+.lv.l1 { border-left-color: var(--ok); }
+.lv.l1 .lt { color: var(--ok); background: var(--ok-soft); }
+.lv.l2 { border-left-color: var(--accent); }
+.lv.l2 .lt { color: var(--accent); background: var(--accent-soft); }
+.lv.l3 { border-left-color: var(--info); }
+.lv.l3 .lt { color: var(--info); background: var(--info-soft); }
+
+/* collapsible blocks */
+details { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin: 0 0 10px; box-shadow: var(--shadow); transition: border-color .15s; }
+details:hover { border-color: color-mix(in srgb, var(--sec) 45%, var(--border)); }
+details[open] { border-left: 4px solid var(--sec); }
 details > summary {
-  cursor: pointer; padding: 11px 14px; list-style: none; display: flex; gap: 10px; align-items: baseline; font-weight: 600;
+  cursor: pointer; padding: 12px 16px; list-style: none; display: flex; gap: 10px; align-items: baseline; font-weight: 620; border-radius: 12px;
 }
+details > summary:hover { background: var(--surface-2); }
 details > summary::-webkit-details-marker { display: none; }
-details > summary::before { content: "▸"; color: var(--muted); flex: 0 0 auto; transition: transform .15s; }
-details[open] > summary::before { transform: rotate(90deg); }
+details > summary::before {
+  content: "+"; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px; align-self: center;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px;
+  color: var(--sec); background: var(--surface-2);
+}
+details[open] > summary::before { content: "−"; color: var(--surface); background: var(--sec); }
 details > summary .sumtext { flex: 1 1 auto; min-width: 0; }
 details > summary .meta { flex: 0 0 auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-details > .body { padding: 2px 16px 14px 34px; }
+details > .body { padding: 4px 18px 16px 46px; }
 details > .body > :last-child { margin-bottom: 0; }
-.qa .body dl { margin: 0; }
-.qa .body dt { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 10px; }
-.qa .body dd { margin: 2px 0 0; }
-.qa .practiced { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-top: 12px; }
-.qa.done > summary .sumtext::after { content: " ✓"; color: var(--ok); }
-.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 14px; }
-.filters label { font-size: 13.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.qa .body dl { margin: 0; display: grid; gap: 4px; }
+.qa .body dt {
+  font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--sec); margin-top: 10px;
+}
+.qa .body dt:first-child { margin-top: 2px; }
+.qa .body dd { margin: 0 0 2px; padding-left: 12px; border-left: 2px solid var(--border); }
+.qa .body dd:first-of-type { font-weight: 550; border-left-color: var(--sec); }
+.qa .practiced { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 14px; padding: 5px 12px 5px 8px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+.qa .practiced input { width: 16px; height: 16px; accent-color: var(--ok); }
+.qa.done > summary .sumtext::after { content: "  ✓ practised"; color: var(--ok); font-size: 12.5px; font-weight: 700; }
+.filters {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 16px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+}
+.filters label { font-size: 13.5px; font-weight: 600; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 select, .filters input[type="text"] {
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text);
+  background: var(--surface-2); color: var(--text);
 }
 .count-note { font-size: 13.5px; color: var(--muted); }
-.tree { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; white-space: pre; margin: 0 0 16px; }
-.tree a { text-decoration: none; }
-figure { margin: 0 0 20px; }
-figure .diagram { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; overflow-x: auto; }
+.tree {
+  font-family: var(--mono); font-size: 13px; line-height: 1.6; background: var(--pre-bg); color: var(--pre-text);
+  border: 1px solid var(--pre-border); border-radius: 10px; padding: 16px 18px; overflow-x: auto; white-space: pre; margin: 0 0 18px;
+}
+.tree a { text-decoration: none; color: #9fdcff; }
+.tree a:hover { text-decoration: underline; }
+
+/* ---------- diagrams ---------- */
+figure { margin: 0 0 22px; }
+figure .diagram { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; box-shadow: var(--shadow); }
 figure svg { display: block; width: 100%; height: auto; min-width: 640px; }
 figure.narrow svg { min-width: 480px; }
-figcaption { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
 svg .box { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.2; }
-svg .box-a { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
-svg .box-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.2; }
-svg .box-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.2; }
-svg .box-info { fill: var(--info-soft); stroke: var(--info); stroke-width: 1.2; }
-svg .box-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.2; }
-svg .group { fill: none; stroke: var(--border); stroke-width: 1.2; stroke-dasharray: 5 4; }
+svg .box-a { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+svg .box-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.4; }
+svg .box-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.4; }
+svg .box-info { fill: var(--info-soft); stroke: var(--info); stroke-width: 1.4; }
+svg .box-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.4; }
+svg .group { fill: none; stroke: var(--muted); stroke-opacity: .5; stroke-width: 1.2; stroke-dasharray: 5 4; }
 svg text { fill: var(--text); font-family: var(--font); font-size: 13px; }
 svg text.t-s { font-size: 11px; fill: var(--muted); }
 svg text.t-b { font-weight: 700; }
-svg text.t-g { font-size: 11.5px; fill: var(--muted); font-weight: 700; letter-spacing: .06em; }
+svg text.t-g { font-size: 11.5px; fill: var(--accent-2); font-weight: 800; letter-spacing: .06em; }
 svg .ln { stroke: var(--muted); stroke-width: 1.4; fill: none; }
-svg .ln-a { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+svg .ln-a { stroke: var(--accent); stroke-width: 1.8; fill: none; }
 svg .ln-d { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
 svg .ah { fill: var(--muted); }
 svg .ah-a { fill: var(--accent); }
-.steps { counter-reset: s; list-style: none; padding: 0; margin: 0 0 18px; }
-.steps > li { counter-increment: s; position: relative; padding: 2px 0 10px 40px; border-left: 2px solid var(--border); margin: 0 0 0 13px; }
+
+/* ---------- steps, misc ---------- */
+.steps { counter-reset: s; list-style: none; padding: 0; margin: 0 0 20px; }
+.steps > li { counter-increment: s; position: relative; padding: 2px 0 12px 40px; border-left: 2px solid var(--border); margin: 0 0 0 14px; }
 .steps > li::before {
-  content: counter(s); position: absolute; left: -14px; top: 0; width: 26px; height: 26px; border-radius: 50%;
-  background: var(--accent); color: var(--accent-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  content: counter(s); position: absolute; left: -15px; top: 0; width: 28px; height: 28px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--sec), var(--accent-2)); color: var(--accent-text); font-size: 13px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 4px var(--bg);
 }
 .steps > li:last-child { border-left-color: transparent; }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14.5px; margin: 0 0 14px; }
-.kv dt { color: var(--muted); font-weight: 600; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 14.5px; margin: 0 0 14px; }
+.kv dt { color: var(--sec); font-weight: 700; }
 .kv dd { margin: 0; }
 .pitch { white-space: normal; }
+.pitch-d[open] { background: linear-gradient(180deg, var(--accent-soft), var(--surface) 60%); }
 .small { font-size: 13.5px; color: var(--muted); }
-.rel { font-size: 13.5px; margin-top: 8px; color: var(--muted); }
-.rel a { margin-right: 6px; }
-.mock { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 18px; box-shadow: var(--shadow); margin: 0 0 18px; }
-.mock .mq { font-size: 18px; font-weight: 650; margin: 6px 0 12px; }
-.mock .mbar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 6px 0 14px; }
-.mock .mbar span { display: block; height: 100%; background: var(--accent); width: 0; }
-.mock .mans { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
-.mock .mans dl dt { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 10px; }
+.rel { font-size: 13.5px; margin-top: 10px; color: var(--muted); }
+.rel a { display: inline-block; margin: 2px 6px 2px 0; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); text-decoration: none; font-weight: 600; }
+.rel a:hover { background: var(--accent-soft); }
+
+/* mock interview */
+.mock { border: 1px solid var(--border); border-top: 4px solid var(--l3); border-radius: 16px; background: var(--surface); padding: 20px; box-shadow: var(--shadow-lg); margin: 0 0 20px; }
+.mock .mq { font-size: 19px; font-weight: 700; margin: 6px 0 14px; padding: 14px 16px; border-radius: 10px; background: var(--info-soft); }
+.mock .mbar { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 8px 0 14px; }
+.mock .mbar span { display: block; height: 100%; background: linear-gradient(90deg, var(--l3), var(--accent-2)); width: 0; transition: width .25s; }
+.mock .mans { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.mock .mans dl dt { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--l3); margin-top: 10px; }
 .mock .mans dl dd { margin: 2px 0 0; }
 .rubric { width: 100%; }
 .rubric td:first-child { width: 42%; }
-.rubric fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.rubric fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.rubric fieldset label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; font-weight: 600; }
+.rubric fieldset label:has(input:checked) { background: var(--info-soft); border-color: var(--l3); color: var(--l3); }
 .rubric legend { position: absolute; left: -9999px; }
-.btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
 .btn {
-  font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 600; padding: 8px 15px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: background .15s, border-color .15s;
 }
-.btn:hover { background: var(--surface-2); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.btn.primary:hover { filter: brightness(1.07); }
+.btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+.btn.primary { background: linear-gradient(135deg, #4f46e5, #0e7490); border-color: transparent; color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.checklist { list-style: none; padding: 0; }
-.checklist li { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border); }
-.checklist input { margin-top: 5px; width: 17px; height: 17px; flex: 0 0 auto; }
-.result-pass { color: var(--ok); font-weight: 700; }
-.result-fail { color: var(--bad); font-weight: 700; }
-.result-part { color: var(--warn); font-weight: 700; }
-.result-nt { color: var(--muted); font-weight: 700; }
+.checklist { list-style: none; padding: 0; margin: 0 0 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 14px; border-bottom: 1px solid var(--border); margin: 0; }
+.checklist li:last-child { border-bottom: 0; }
+.checklist input { margin-top: 5px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--ok); }
+.checklist li:has(input:checked) label { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--ok); }
+.result-pass { color: var(--ok); font-weight: 800; }
+.result-fail { color: var(--bad); font-weight: 800; }
+.result-part { color: var(--warn); font-weight: 800; }
+.result-nt { color: var(--muted); font-weight: 800; }
 .hidden { display: none !important; }
-.toTop { position: fixed; right: 16px; bottom: 16px; z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.toTop { position: fixed; right: 18px; bottom: 18px; z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s; box-shadow: var(--shadow-lg); }
 .toTop.show { opacity: 1; pointer-events: auto; }
 .noscript { padding: 10px 16px; background: var(--warn-soft); border-bottom: 1px solid var(--border); font-size: 14px; }
-footer.end { max-width: 880px; margin: 60px auto 0; padding-top: 18px; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--muted); }
+footer.end { max-width: 900px; margin: 64px auto 0; padding-top: 18px; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--muted); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1020px) {
@@ -333,19 +511,28 @@ footer.end { max-width: 880px; margin: 60px auto 0; padding-top: 18px; border-to
   #menuBtn { display: inline-flex; }
   .sidebar {
     position: fixed; top: 57px; left: 0; bottom: 0; width: min(320px, 86vw); height: auto; z-index: 45;
-    transform: translateX(-102%); transition: transform .2s ease; box-shadow: 0 10px 40px rgba(0,0,0,.25);
+    transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow-lg);
   }
   .sidebar.open { transform: translateX(0); }
   .crumb { display: none; }
 }
 @media (max-width: 640px) {
   body { font-size: 16px; }
-  main { padding: 20px 16px 70px; }
+  main { padding: 18px 16px 70px; }
   .brand small { display: none; }
+  .brand .txt { display: none; }
   .topbar { gap: 8px; padding: 8px 12px; }
   .searchwrap { flex: 1 1 auto; }
   .iconbtn .lbl { display: none; }
-  details > .body { padding: 2px 12px 12px 14px; }
+  .hero { padding: 20px 16px 16px; border-radius: 14px; }
+  .hero h1 { font-size: 25px; }
+  .hero .lead { font-size: 15.5px; line-height: 1.55; margin-bottom: 14px; }
+  .hero .small { font-size: 12px; line-height: 1.5; }
+  .hero-stats { gap: 6px; }
+  .hero-stats li { font-size: 12px; padding: 4px 9px; }
+  .layer-banner { padding: 18px; }
+  details > .body { padding: 4px 12px 12px 14px; }
+  .callout { padding-left: 42px; }
   .kv { grid-template-columns: 1fr; }
   .kv dd { margin-bottom: 6px; }
   th, td { padding: 8px; }
@@ -357,7 +544,9 @@ footer.end { max-width: 880px; margin: 60px auto 0; padding-top: 18px; border-to
 @media print {
   .topbar, .sidebar, .toTop, .progress, .copy-btn, .section-tools, .filters { display: none !important; }
   .layout { display: block; }
-  details > .body { display: block !important; }
+  .hero { color: #000; background: none; box-shadow: none; border: 1px solid #999; }
+  .hero h1, .hero .lead, .hero-stats li { color: #000; }
+  pre, .tree { background: #f4f4f4; color: #000; }
 }
 </style>
 </head>
@@ -369,7 +558,7 @@ footer.end { max-width: 880px; margin: 60px auto 0; padding-top: 18px; border-to
   <button class="iconbtn" id="menuBtn" aria-label="Open contents" aria-expanded="false" aria-controls="sidebar">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
   </button>
-  <div class="brand">Voxa Handbook<small>project · architecture · interview prep</small></div>
+  <div class="brand"><span class="logo" aria-hidden="true">V</span><span class="txt">Voxa Handbook</span><small>project · architecture · interview prep</small></div>
   <div class="crumb" id="crumb" aria-live="polite"></div>
   <div class="searchwrap" role="search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -431,9 +620,18 @@ footer.end { max-width: 880px; margin: 60px auto 0; padding-top: 18px; border-to
 <div class="content">
 
 <section id="top" aria-labelledby="h-top">
+<div class="hero">
 <p class="small">Generated 2026-10-23 from the working tree at commit <code>94b2579</code> (branch <code>main</code>). Line numbers refer to that version of each file.</p>
 <h1 id="h-top">Voxa: Real-Time Voice &amp; Text Customer-Support Platform</h1>
 <p class="lead">This handbook teaches the Voxa project from zero: what it does, how each file works, how it was deployed on Azure, where it is weak, and how to explain and defend it in an SDE-1 interview.</p>
+<ul class="hero-stats" aria-label="Project at a glance">
+<li><b>77</b> tracked files mapped</li>
+<li><b>415</b> line-referenced source links</li>
+<li><b>74</b> interview questions</li>
+<li><b>36</b> backend tests passing</li>
+<li>Deployed on <b>Azure</b> (single VM)</li>
+</ul>
+</div>
 
 <div class="callout info">
 <span class="ct">How to read this handbook</span>
@@ -765,7 +963,7 @@ npm run lint &amp;&amp; npm run typecheck &amp;&amp; npm run build</code></pre>
 
 <section id="repo" aria-labelledby="h-repo">
 <h2 id="h-repo">A. Repository and file-by-file guide</h2>
-<p>The repository has <strong>77 tracked files</strong> (<code>git ls-files</code>). Two of them are generated handbooks (<code>PROJECT_HANDBOOK.html</code>, being regenerated now, and <code>voxa-interview-handbook.html</code>, deleted in your working tree); they were excluded from analysis and are never used as evidence. Every other tracked file is listed below. Local caches (<code>__pycache__</code>, <code>.pytest_cache</code>, <code>node_modules</code>, <code>.next</code>) are untracked build output and were ignored.</p>
+<p>At commit <code>94b2579</code> the repository had <strong>77 tracked files</strong> (<code>git ls-files</code>). Two of them were generated handbooks (the previous <code>PROJECT_HANDBOOK.html</code>, replaced by this one, and <code>voxa-interview-handbook.html</code>, removed in the same commit); they were excluded from analysis and are never used as evidence. Every other tracked file is listed below. Local caches (<code>__pycache__</code>, <code>.pytest_cache</code>, <code>node_modules</code>, <code>.next</code>) are untracked build output and were ignored.</p>
 
 <h3>Directory tree</h3>
 <div class="tree" aria-label="Repository tree">voxa-voice-customer-support/
@@ -2025,7 +2223,7 @@ docker compose up --build -d</code></pre></li>
 <div id="qlist">
 
 <details class="qa" id="q1" data-cat="overview" data-level="intro" data-mock="1">
-<summary><span class="sumtext">Q1. Tell me about this project.</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Project overview</span></span></summary>
+<summary><span class="sumtext">Q1. Tell me about this project.</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Project overview</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Voxa is a real-time customer-support platform: a Next.js console streams answers over a WebSocket from a FastAPI gateway, which answers order, refund and policy questions using PostgreSQL, pgvector similarity search and a Redis semantic cache, with Redis Streams workers for speech-to-text, answer generation and text-to-speech, and a Redis-backed circuit breaker and rate limiter. I deployed it with Docker Compose on an Azure Linux VM.</dd>
 <dt>Explanation</dt><dd>Structure it as problem → architecture → one interesting decision → honest limit. Keep it under a minute and let the interviewer pick the thread.</dd>
@@ -2036,7 +2234,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q1"> Practised</label>
 </div></details>
 <details class="qa" id="q2" data-cat="overview" data-level="intro">
-<summary><span class="sumtext">Q2. Who are the users and what problems does it solve?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Project overview</span></span></summary>
+<summary><span class="sumtext">Q2. Who are the users and what problems does it solve?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Project overview</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Customers asking repetitive questions (order status, refunds, warranty, shipping), support operators who need escalation tickets and health metrics, and API clients that want streaming answers.</dd>
 <dt>Explanation</dt><dd>The value is speed (streaming, cache), correctness for account data (live SQL, never cached), and safe hand-off to humans (tickets on anger, legal words or explicit requests).</dd>
@@ -2047,7 +2245,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q2"> Practised</label>
 </div></details>
 <details class="qa" id="q3" data-cat="overview" data-level="intro">
-<summary><span class="sumtext">Q3. What exactly did you build, and did you use AI tools?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Project overview</span></span></summary>
+<summary><span class="sumtext">Q3. What exactly did you build, and did you use AI tools?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Project overview</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Answer truthfully. A safe structure: "I designed and assembled the system, used AI assistance for parts of the code, and then reviewed, tested and debugged it — for example the regression tests pin bugs I fixed in the circuit breaker ratio, the STT read loop and token verification."</dd>
 <dt>Explanation</dt><dd>Interviewers care that you can explain and change the code. Demonstrate it by walking through one module in depth (the circuit breaker or the WebSocket handler).</dd>
@@ -2058,7 +2256,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q3"> Practised</label>
 </div></details>
 <details class="qa" id="q4" data-cat="overview" data-level="mid">
-<summary><span class="sumtext">Q4. What was the hardest bug?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Project overview</span></span></summary>
+<summary><span class="sumtext">Q4. What was the hardest bug?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Project overview</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>A good one: the STT worker read its own pending entries with ID "0"; when nothing was pending Redis returned <code>[[stream, []]]</code>, which is truthy in Python, so the loop treated it as work and never read new messages. The fix flattens the reply and only treats non-empty batches as work.</dd>
 <dt>Explanation</dt><dd>It is subtle because the code "looked right" and only failed at runtime with real Redis replies. A regression test now reproduces the exact reply shape.</dd>
@@ -2069,7 +2267,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q4"> Practised</label>
 </div></details>
 <details class="qa" id="q5" data-cat="overview" data-level="mid" data-mock="15">
-<summary><span class="sumtext">Q5. What would you do differently?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Project overview</span></span></summary>
+<summary><span class="sumtext">Q5. What would you do differently?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Project overview</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Use one router for every channel, put HTTPS and closed ports on the VM from day one, link orders to users, measure latency with k6 before quoting targets, and either add a real LLM or stop calling the worker an "LLM worker".</dd>
 <dt>Explanation</dt><dd>Shows judgement: security basics first, then correctness consistency, then performance evidence, then features.</dd>
@@ -2080,7 +2278,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q5"> Practised</label>
 </div></details>
 <details class="qa" id="q6" data-cat="arch" data-level="intro" data-mock="2">
-<summary><span class="sumtext">Q6. Walk me through what happens when a user types a message.</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q6. Walk me through what happens when a user types a message.</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Browser sends a <code>text_query</code> JSON frame → gateway validates length → Redis Lua rate limit → <code>sanitize_user_input</code> → circuit-breaker check → <code>answer_text_query</code> picks a rule (tool, policy, cache, KB) → words streamed as <code>token_chunk</code> frames → final frame with latency, cache flag, breaker state, trace ID → messages saved for token holders.</dd>
 <dt>Explanation</dt><dd>Mention where state lives (Redis for limits/breaker/cache, Postgres for data) and that the embedding model runs in a thread.</dd>
@@ -2091,7 +2289,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q6"> Practised</label>
 </div></details>
 <details class="qa" id="q7" data-cat="arch" data-level="mid">
-<summary><span class="sumtext">Q7. Why separate the gateway from the workers?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q7. Why separate the gateway from the workers?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Workers do slow or CPU-heavy work (Whisper, synthesis) that would block or starve the gateway's event loop; separating them lets each scale and fail independently and keeps the gateway responsive for thousands of sockets.</dd>
 <dt>Explanation</dt><dd>The queue absorbs bursts, consumer groups distribute tasks, and acknowledgements give crash safety.</dd>
@@ -2102,7 +2300,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q7"> Practised</label>
 </div></details>
 <details class="qa" id="q8" data-cat="arch" data-level="adv" data-mock="8">
-<summary><span class="sumtext">Q8. Why are typed WebSocket questions answered in the gateway rather than by the LLM worker?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q8. Why are typed WebSocket questions answered in the gateway rather than by the LLM worker?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Because the current answers are deterministic rules, SQL and a vector lookup that complete quickly; a queue round trip would add latency and failure points without benefit.</dd>
 <dt>Explanation</dt><dd>The worker path exists for audio and for the REST SSE endpoint. If a slow generative model were added, routing all text through workers would become the right choice.</dd>
@@ -2113,7 +2311,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q8"> Practised</label>
 </div></details>
 <details class="qa" id="q9" data-cat="arch" data-level="mid">
-<summary><span class="sumtext">Q9. How do worker results get back to the right WebSocket?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q9. How do worker results get back to the right WebSocket?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Each socket gets a <code>session_id</code>; the gateway subscribes to Redis Pub/Sub channel <code>token:stream:{session_id}</code> and runs a background task that forwards every message to the socket. Workers publish to that channel.</dd>
 <dt>Explanation</dt><dd>This decouples workers from gateway instances: any replica holding the socket receives the events.</dd>
@@ -2124,7 +2322,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q9"> Practised</label>
 </div></details>
 <details class="qa" id="q10" data-cat="arch" data-level="adv">
-<summary><span class="sumtext">Q10. In the SSE endpoint, why subscribe before publishing the task?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q10. In the SSE endpoint, why subscribe before publishing the task?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Pub/Sub delivers only to current subscribers. If the gateway published the task first, a fast worker could publish tokens before the subscription exists, and they would be lost.</dd>
 <dt>Explanation</dt><dd>Classic race condition; ordering the operations removes it.</dd>
@@ -2135,7 +2333,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q10"> Practised</label>
 </div></details>
 <details class="qa" id="q11" data-cat="arch" data-level="intro">
-<summary><span class="sumtext">Q11. What does the gateway do at start-up?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q11. What does the gateway do at start-up?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>In <code>lifespan</code>: create the pgvector extension, tables and HNSW index; seed demo data; create Redis consumer groups; warm up the embedding model. On shutdown it disposes the DB engine.</dd>
 <dt>Explanation</dt><dd>All steps are idempotent so every replica can run them; failures in seeding or group creation are logged rather than fatal.</dd>
@@ -2146,7 +2344,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q11"> Practised</label>
 </div></details>
 <details class="qa" id="q12" data-cat="arch" data-level="adv">
-<summary><span class="sumtext">Q12. Why one Uvicorn worker per container?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Architecture</span></span></summary>
+<summary><span class="sumtext">Q12. Why one Uvicorn worker per container?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Architecture</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Prometheus metrics and the WebSocket gauge live in process memory. With several worker processes per container, each scrape would hit a random process and see partial numbers. One process per container keeps metrics consistent; scale by adding containers.</dd>
 <dt>Explanation</dt><dd>The comment in the Dockerfile and telemetry module states this explicitly.</dd>
@@ -2157,7 +2355,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q12"> Practised</label>
 </div></details>
 <details class="qa" id="q13" data-cat="rt" data-level="mid">
-<summary><span class="sumtext">Q13. WebSocket vs SSE vs polling — why each here?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Real-time transport</span></span></summary>
+<summary><span class="sumtext">Q13. WebSocket vs SSE vs polling — why each here?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Real-time transport</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>WebSocket for the console because it needs both directions (text and audio in, tokens and audio out) on one connection; SSE for simple API clients that send one request and read a stream; polling would add latency and load.</dd>
 <dt>Explanation</dt><dd>SSE is plain HTTP and easy to proxy; WebSockets are stateful and need long-lived connection handling.</dd>
@@ -2168,7 +2366,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q13"> Practised</label>
 </div></details>
 <details class="qa" id="q14" data-cat="rt" data-level="intro" data-mock="3">
-<summary><span class="sumtext">Q14. What frames does the WebSocket protocol define?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Real-time transport</span></span></summary>
+<summary><span class="sumtext">Q14. What frames does the WebSocket protocol define?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Real-time transport</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Client: <code>text_query</code> and <code>audio_chunk</code>. Server: <code>token_chunk</code> (with <code>is_final</code>), <code>ack</code>, <code>audio_response</code>, <code>error</code>. All are JSON text frames; binary frames get an error.</dd>
 <dt>Explanation</dt><dd>Each frame carries a <code>trace_id</code> so the client can match tokens to the right bubble and logs can be correlated.</dd>
@@ -2179,7 +2377,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q14"> Practised</label>
 </div></details>
 <details class="qa" id="q15" data-cat="rt" data-level="mid">
-<summary><span class="sumtext">Q15. How does the frontend handle disconnects?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Real-time transport</span></span></summary>
+<summary><span class="sumtext">Q15. How does the frontend handle disconnects?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Real-time transport</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>On <code>close</code> it shows an offline banner and reconnects after <code>min(10 s, 1 s × 2^attempts)</code>; attempts reset on successful open. Typed text is kept if the socket is not open.</dd>
 <dt>Explanation</dt><dd>Exponential backoff avoids hammering a recovering server.</dd>
@@ -2190,7 +2388,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q15"> Practised</label>
 </div></details>
 <details class="qa" id="q16" data-cat="rt" data-level="curve" data-mock="9">
-<summary><span class="sumtext">Q16. Is <code>ttft_ms</code> a real time-to-first-token?</span><span class="meta"><span class="badge b-lvl">Curveball</span><span class="badge b-lvl">Real-time transport</span></span></summary>
+<summary><span class="sumtext">Q16. Is <code>ttft_ms</code> a real time-to-first-token?</span><span class="meta"><span class="badge lvl lvl-curve">Curveball</span><span class="badge cat">Real-time transport</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Not in the usual LLM sense. On the WebSocket path it is the time from receiving the message to the answer being ready, measured before streaming begins; the whole answer already exists. On the SSE path it is the time until the first token event arrives from the worker.</dd>
 <dt>Explanation</dt><dd>Since nothing generates tokens, "first token" equals "answer ready". It is still a meaningful latency, just not model latency.</dd>
@@ -2201,7 +2399,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q16"> Practised</label>
 </div></details>
 <details class="qa" id="q17" data-cat="msg" data-level="intro">
-<summary><span class="sumtext">Q17. What are Redis Streams and consumer groups?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q17. What are Redis Streams and consumer groups?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>A stream is an append-only log of entries (<code>XADD</code>). A consumer group lets several consumers share the work: each entry is delivered to one consumer (<code>XREADGROUP</code>), stays in that group's pending list until acknowledged (<code>XACK</code>).</dd>
 <dt>Explanation</dt><dd>Pending entries make crash recovery possible: inspect with <code>XPENDING</code>, take over with <code>XCLAIM</code>.</dd>
@@ -2212,7 +2410,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q17"> Practised</label>
 </div></details>
 <details class="qa" id="q18" data-cat="msg" data-level="mid" data-mock="7">
-<summary><span class="sumtext">Q18. Explain at-least-once delivery here.</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q18. Explain at-least-once delivery here.</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Workers acknowledge only after finishing (answered, re-queued or dead-lettered). If a worker dies before <code>XACK</code>, the entry stays pending and is reprocessed — either by the same consumer on restart (own-PEL replay) or by the supervisor. So a task may run twice but is not silently lost.</dd>
 <dt>Explanation</dt><dd>Exactly-once would need idempotent handlers or deduplication by message ID.</dd>
@@ -2223,7 +2421,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q18"> Practised</label>
 </div></details>
 <details class="qa" id="q19" data-cat="msg" data-level="mid">
-<summary><span class="sumtext">Q19. How do retries and the dead-letter queue work?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q19. How do retries and the dead-letter queue work?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>On exception the worker re-appends the payload with <code>retry_count+1</code> and acknowledges the original; when the next attempt would be the third, it writes to <code>stream:dead:letter:queue</code> with the error and origin stream, publishes an error event to the user, and acknowledges.</dd>
 <dt>Explanation</dt><dd>The DLQ keeps poison messages from looping forever and preserves them for inspection.</dd>
@@ -2234,7 +2432,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q19"> Practised</label>
 </div></details>
 <details class="qa" id="q20" data-cat="msg" data-level="adv">
-<summary><span class="sumtext">Q20. What does the supervisor do, and what are its risks?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q20. What does the supervisor do, and what are its risks?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Every 5 s it checks each group's pending list, claims entries idle ≥ 15 s, and re-appends them with an incremented attempt count — or dead-letters them after 3 attempts — then acknowledges the originals.</dd>
 <dt>Explanation</dt><dd>It recovers work stranded by crashed consumers, whose random names never come back.</dd>
@@ -2245,7 +2443,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q20"> Practised</label>
 </div></details>
 <details class="qa" id="q21" data-cat="msg" data-level="adv">
-<summary><span class="sumtext">Q21. Why carry <code>retry_count</code> in the payload instead of using Redis's delivery count?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q21. Why carry <code>retry_count</code> in the payload instead of using Redis's delivery count?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>The supervisor re-appends a new entry, whose delivery count starts at 1 again. Without a counter in the payload, a message that crashes every worker would be recycled forever.</dd>
 <dt>Explanation</dt><dd>Attempts = max(payload count, delivery count) + 1.</dd>
@@ -2256,7 +2454,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q21"> Practised</label>
 </div></details>
 <details class="qa" id="q22" data-cat="msg" data-level="adv">
-<summary><span class="sumtext">Q22. Redis Streams vs Kafka vs RabbitMQ for this project?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q22. Redis Streams vs Kafka vs RabbitMQ for this project?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Redis Streams fits a small, latency-sensitive workload that already depends on Redis. Kafka offers durable partitioned logs, replay and huge throughput but needs a cluster. RabbitMQ offers flexible routing, per-message TTL and dead-letter exchanges out of the box.</dd>
 <dt>Explanation</dt><dd>The decision was simplicity: one dependency for queue, cache, limiter and breaker.</dd>
@@ -2267,7 +2465,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q22"> Practised</label>
 </div></details>
 <details class="qa" id="q23" data-cat="msg" data-level="mid">
-<summary><span class="sumtext">Q23. What does <code>MAXLEN ~ 10000</code> do and what could go wrong?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Messaging</span></span></summary>
+<summary><span class="sumtext">Q23. What does <code>MAXLEN ~ 10000</code> do and what could go wrong?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Messaging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Each <code>XADD</code> trims the stream to roughly the newest 10,000 entries (approximate trimming is cheaper). It keeps memory bounded because acknowledged entries are not deleted automatically.</dd>
 <dt>Explanation</dt><dd>The <code>~</code> lets Redis trim whole internal nodes instead of exact counts.</dd>
@@ -2278,7 +2476,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q23"> Practised</label>
 </div></details>
 <details class="qa" id="q24" data-cat="rel" data-level="intro" data-mock="6">
-<summary><span class="sumtext">Q24. Explain the circuit breaker's states.</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q24. Explain the circuit breaker's states.</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>CLOSED — normal, outcomes counted; trips to OPEN when failures/total ≥ 50 % with at least 4 calls. OPEN — every request gets an immediate fallback for 15 s. HALF_OPEN — exactly one probe request is allowed; success closes the breaker, failure re-opens it with a fresh timer.</dd>
 <dt>Explanation</dt><dd>It protects a struggling dependency from more load and gives users a fast answer instead of a hang.</dd>
@@ -2289,7 +2487,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q24"> Practised</label>
 </div></details>
 <details class="qa" id="q25" data-cat="rel" data-level="mid">
-<summary><span class="sumtext">Q25. Why keep breaker state in Redis instead of memory?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q25. Why keep breaker state in Redis instead of memory?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Several gateway replicas must agree. With in-memory state, one replica might keep hammering a failing dependency while another has tripped.</dd>
 <dt>Explanation</dt><dd>All replicas read and write <code>circuit:ai_worker:*</code> keys.</dd>
@@ -2300,7 +2498,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q25"> Practised</label>
 </div></details>
 <details class="qa" id="q26" data-cat="rel" data-level="adv">
-<summary><span class="sumtext">Q26. What is the half-open probe lock and why <code>SET NX EX</code>?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q26. What is the half-open probe lock and why <code>SET NX EX</code>?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>In HALF_OPEN, each request tries <code>SET circuit:…:probe_lock 1 NX EX 10</code>. NX means "only if absent", so exactly one request across all replicas wins and becomes the probe; EX 10 makes the lock expire if the probe dies without reporting.</dd>
 <dt>Explanation</dt><dd>Without it, every request arriving after the cooldown would flood the recovering dependency.</dd>
@@ -2311,7 +2509,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q26"> Practised</label>
 </div></details>
 <details class="qa" id="q27" data-cat="rel" data-level="curve">
-<summary><span class="sumtext">Q27. Is the breaker's 10-second window a true sliding window?</span><span class="meta"><span class="badge b-lvl">Curveball</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q27. Is the breaker's 10-second window a true sliding window?</span><span class="meta"><span class="badge lvl lvl-curve">Curveball</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>No. The failure and total counters get their 10 s TTL refreshed on every recorded outcome, so under continuous traffic they never expire. The ratio becomes cumulative since the last quiet 10 s gap; after hours of successes, a sudden outage needs many failures before the ratio reaches 50 %.</dd>
 <dt>Explanation</dt><dd>A true window would bucket counts by time (e.g. per-second keys summed over 10 s) or use a sorted set like the rate limiter.</dd>
@@ -2322,7 +2520,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q27"> Practised</label>
 </div></details>
 <details class="qa" id="q28" data-cat="rel" data-level="adv">
-<summary><span class="sumtext">Q28. What happens when Redis goes down?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q28. What happens when Redis goes down?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Typed WebSocket messages: the rate check fails open, but <code>circuit_breaker.can_execute</code> reads Redis outside a try block, the exception escapes the loop and the session closes; the browser reconnects and the next message fails the same way. REST: the rate-limit dependency raises → HTTP 500. Workers log errors and sleep 1 s. The semantic cache degrades to a miss.</dd>
 <dt>Explanation</dt><dd>The code comment says a Redis blip should not take chat offline, but only part of the path implements that.</dd>
@@ -2333,7 +2531,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q28"> Practised</label>
 </div></details>
 <details class="qa" id="q29" data-cat="rel" data-level="mid">
-<summary><span class="sumtext">Q29. How does the rate limiter work?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q29. How does the rate limiter work?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Per identity (JWT subject or IP) a Redis sorted set stores request timestamps. A Lua script removes entries older than 60 s, counts the rest, and adds the new request only if the count is below 30, then sets expiry. REST returns 429 with <code>Retry-After: 60</code>; WebSocket gets an error frame.</dd>
 <dt>Explanation</dt><dd>Sliding-window log: exact, fair at window boundaries, memory proportional to the limit.</dd>
@@ -2344,7 +2542,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q29"> Practised</label>
 </div></details>
 <details class="qa" id="q30" data-cat="rel" data-level="mid">
-<summary><span class="sumtext">Q30. Why use a Lua script?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q30. Why use a Lua script?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>The read-check-write must be atomic. Redis runs a Lua script without interleaving other commands, so two replicas cannot both read "29" and both admit request 30.</dd>
 <dt>Explanation</dt><dd>Alternatives: <code>MULTI/EXEC</code> with <code>WATCH</code> (retries on conflict) or a single-command algorithm such as INCR with a fixed window.</dd>
@@ -2355,7 +2553,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q30"> Practised</label>
 </div></details>
 <details class="qa" id="q31" data-cat="rel" data-level="adv">
-<summary><span class="sumtext">Q31. What does the idempotency key do, and what is missing?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Reliability</span></span></summary>
+<summary><span class="sumtext">Q31. What does the idempotency key do, and what is missing?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Reliability</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>If a client sends <code>X-Idempotency-Key</code>, the gateway does <code>SET idempotency:&lt;identity&gt;:&lt;key&gt; PROCESSING NX EX 60</code>; a duplicate within 60 s gets 409. It runs after the rate limit so a 429 does not burn the key.</dd>
 <dt>Explanation</dt><dd>It prevents double submission from retries.</dd>
@@ -2366,7 +2564,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q31"> Practised</label>
 </div></details>
 <details class="qa" id="q32" data-cat="ai" data-level="curve" data-mock="10">
-<summary><span class="sumtext">Q32. Is this RAG? Is there an LLM?</span><span class="meta"><span class="badge b-lvl">Curveball</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q32. Is this RAG? Is there an LLM?</span><span class="meta"><span class="badge lvl lvl-curve">Curveball</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>There is no generative LLM — the configured Qwen model is never loaded. The system implements the retrieval half of RAG (embedding, vector search, threshold) and returns the retrieved passage as the answer. The accurate term is retrieval-based answering.</dd>
 <dt>Explanation</dt><dd>Saying this first builds credibility; then explain how generation would plug in (Q42).</dd>
@@ -2377,7 +2575,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q32"> Practised</label>
 </div></details>
 <details class="qa" id="q33" data-cat="ai" data-level="intro">
-<summary><span class="sumtext">Q33. What are embeddings, and why 384 dimensions?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q33. What are embeddings, and why 384 dimensions?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Embeddings are vectors representing meaning; similar texts get vectors pointing in similar directions. 384 is simply the output size of all-MiniLM-L6-v2, a small fast model suited to CPU.</dd>
 <dt>Explanation</dt><dd>Vectors are L2-normalised so cosine similarity equals the dot product.</dd>
@@ -2388,7 +2586,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q33"> Practised</label>
 </div></details>
 <details class="qa" id="q34" data-cat="ai" data-level="mid" data-mock="4">
-<summary><span class="sumtext">Q34. How does the semantic cache work?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q34. How does the semantic cache work?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Embed the question, scan up to 50 <code>semcache:*</code> keys, fetch them with one MGET, compute dot products, return the first cached answer with similarity ≥ 0.92. On a miss, compute the answer and store {query, vector, response} for 1 hour.</dd>
 <dt>Explanation</dt><dd>Saves vector search and router work for repeated questions phrased slightly differently.</dd>
@@ -2399,7 +2597,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q34"> Practised</label>
 </div></details>
 <details class="qa" id="q35" data-cat="ai" data-level="adv">
-<summary><span class="sumtext">Q35. Why thresholds of 0.92 (cache) and 0.35 (knowledge base)?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q35. Why thresholds of 0.92 (cache) and 0.35 (knowledge base)?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>They are hand-picked constants. 0.92 is strict because serving a cached answer to a different question is worse than recomputing. 0.35 is loose because any reasonably related policy passage beats the generic fallback.</dd>
 <dt>Explanation</dt><dd>No evaluation set exists in the repository, so neither was tuned empirically.</dd>
@@ -2410,7 +2608,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q35"> Practised</label>
 </div></details>
 <details class="qa" id="q36" data-cat="ai" data-level="mid">
-<summary><span class="sumtext">Q36. What is HNSW and why pgvector?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q36. What is HNSW and why pgvector?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>HNSW is a multi-layer proximity graph for approximate nearest-neighbour search: start at a sparse top layer, greedily move to closer nodes, descend layers. pgvector adds vector types, distance operators and HNSW/IVFFlat indexes to PostgreSQL, so vectors sit next to relational data.</dd>
 <dt>Explanation</dt><dd><code>vector_cosine_ops</code> matches the <code>&lt;=&gt;</code> cosine-distance operator used in the query.</dd>
@@ -2421,7 +2619,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q36"> Practised</label>
 </div></details>
 <details class="qa" id="q37" data-cat="ai" data-level="mid">
-<summary><span class="sumtext">Q37. Why is cosine similarity a dot product here?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q37. Why is cosine similarity a dot product here?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>cos(u, v) = u·v / (|u||v|). The vectors are normalised to length 1 when generated, so the denominator is 1.</dd>
 <dt>Explanation</dt><dd>Saves two norm computations per comparison.</dd>
@@ -2432,7 +2630,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q37"> Practised</label>
 </div></details>
 <details class="qa" id="q38" data-cat="ai" data-level="mid" data-mock="5">
-<summary><span class="sumtext">Q38. Why is order data never cached?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q38. Why is order data never cached?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Order answers depend on who asks and change over time; ticket creation has side effects. A shared cache could show one user's order to another or skip creating a ticket. Only the final generic branch reads/writes the cache, and REST checks <code>detect_tool_intent</code> first.</dd>
 <dt>Explanation</dt><dd>Cache only what is user-independent and idempotent.</dd>
@@ -2443,7 +2641,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q38"> Practised</label>
 </div></details>
 <details class="qa" id="q39" data-cat="ai" data-level="mid">
-<summary><span class="sumtext">Q39. How does Faster-Whisper INT8 work and why CPU?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q39. How does Faster-Whisper INT8 work and why CPU?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Faster-Whisper runs Whisper on CTranslate2; INT8 quantisation stores weights in 8 bits, cutting memory and speeding CPU inference at a small accuracy cost. CPU because the target hosts (like a small Azure VM) have no GPU.</dd>
 <dt>Explanation</dt><dd>Audio is written to a temp file, decoded via FFmpeg, transcribed with beam size 2, in a thread.</dd>
@@ -2454,7 +2652,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q39"> Practised</label>
 </div></details>
 <details class="qa" id="q40" data-cat="ai" data-level="adv">
-<summary><span class="sumtext">Q40. Why call models through <code>asyncio.to_thread</code>?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q40. Why call models through <code>asyncio.to_thread</code>?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Model inference and bcrypt are CPU-bound and synchronous. Called directly in an async function they would block the event loop and freeze every WebSocket on the process. A thread lets the loop keep serving while native code (which releases the GIL) runs.</dd>
 <dt>Explanation</dt><dd>The workers do the same so their heartbeat task keeps running during transcription.</dd>
@@ -2465,7 +2663,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q40"> Practised</label>
 </div></details>
 <details class="qa" id="q41" data-cat="ai" data-level="intro">
-<summary><span class="sumtext">Q41. What did the V1 notebook do?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q41. What did the V1 notebook do?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>It fine-tuned Google's FLAN-T5-base, a sequence-to-sequence model, on the Bitext customer-support dataset (26,872 pairs, 80/20 split) in Colab for 2 epochs; the stored output says training took 63 minutes. V1's Flask server served it with sampling.</dd>
 <dt>Explanation</dt><dd>V2 replaced it with deterministic tools and retrieval for predictability, speed and CPU cost.</dd>
@@ -2476,7 +2674,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q41"> Practised</label>
 </div></details>
 <details class="qa" id="q42" data-cat="ai" data-level="adv">
-<summary><span class="sumtext">Q42. How would you add a real LLM?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">AI / ML</span></span></summary>
+<summary><span class="sumtext">Q42. How would you add a real LLM?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">AI / ML</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Keep tools for account questions; for generic ones retrieve top-k passages, build a delimited prompt (<code>sanitize_and_isolate_prompt</code> already exists), call a model (local small model or hosted API) from the worker, stream its tokens to Pub/Sub, and route WebSocket text through the worker too.</dd>
 <dt>Explanation</dt><dd>The existing breaker, timeout and DLQ already wrap the worker path.</dd>
@@ -2487,7 +2685,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q42"> Practised</label>
 </div></details>
 <details class="qa" id="q43" data-cat="db" data-level="intro">
-<summary><span class="sumtext">Q43. Describe the database schema.</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Data</span></span></summary>
+<summary><span class="sumtext">Q43. Describe the database schema.</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Data</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>users → conversations → messages (cascade deletes); messages ← feedback_ratings; support_tickets and orders reference users optionally; knowledge_base stands alone with a 384-d vector column and HNSW index.</dd>
 <dt>Explanation</dt><dd>UUID primary keys except orders (business IDs like ORD-88412) and knowledge_base (integer).</dd>
@@ -2498,7 +2696,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q43"> Practised</label>
 </div></details>
 <details class="qa" id="q44" data-cat="db" data-level="mid">
-<summary><span class="sumtext">Q44. How is the schema created? What about migrations?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Data</span></span></summary>
+<summary><span class="sumtext">Q44. How is the schema created? What about migrations?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Data</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd><code>init_db</code> runs <code>CREATE EXTENSION IF NOT EXISTS vector</code>, <code>Base.metadata.create_all</code> and a raw <code>CREATE INDEX IF NOT EXISTS … USING hnsw</code> on every gateway start.</dd>
 <dt>Explanation</dt><dd>Idempotent and simple for a demo.</dd>
@@ -2509,7 +2707,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q44"> Practised</label>
 </div></details>
 <details class="qa" id="q45" data-cat="db" data-level="mid">
-<summary><span class="sumtext">Q45. How is p95 latency computed?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Data</span></span></summary>
+<summary><span class="sumtext">Q45. How is p95 latency computed?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Data</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>In SQL: <code>percentile_cont(0.95) WITHIN GROUP (ORDER BY total_latency_ms)</code> over all assistant messages that recorded a latency.</dd>
 <dt>Explanation</dt><dd><code>percentile_cont</code> interpolates between values (continuous percentile).</dd>
@@ -2520,7 +2718,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q45"> Practised</label>
 </div></details>
 <details class="qa" id="q46" data-cat="db" data-level="mid">
-<summary><span class="sumtext">Q46. Why one PostgreSQL for relational and vector data?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Data</span></span></summary>
+<summary><span class="sumtext">Q46. Why one PostgreSQL for relational and vector data?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Data</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>One system to run, back up and secure; vectors and relational rows can be queried and committed together; no dual writes to keep consistent.</dd>
 <dt>Explanation</dt><dd>README ADR-002 makes this argument.</dd>
@@ -2531,7 +2729,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q46"> Practised</label>
 </div></details>
 <details class="qa" id="q47" data-cat="db" data-level="adv">
-<summary><span class="sumtext">Q47. Explain the async session usage and connection pooling.</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Data</span></span></summary>
+<summary><span class="sumtext">Q47. Explain the async session usage and connection pooling.</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Data</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Routes get a request-scoped session from <code>get_db</code>; background code opens <code>AsyncSessionLocal()</code> in an <code>async with</code> block. The engine pools 20 connections plus 10 overflow per process, with pre-ping to detect dead connections.</dd>
 <dt>Explanation</dt><dd><code>expire_on_commit=False</code> avoids implicit reloads after commit, which async code cannot do lazily.</dd>
@@ -2542,7 +2740,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q47"> Practised</label>
 </div></details>
 <details class="qa" id="q48" data-cat="sec" data-level="intro">
-<summary><span class="sumtext">Q48. How does authentication work?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q48. How does authentication work?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Users sign up or log in with email/password (bcrypt), or get a guest account; the server returns an HS256 JWT with user ID, role and 24 h expiry. REST sends it as a Bearer header; the WebSocket sends it as <code>?token=</code>.</dd>
 <dt>Explanation</dt><dd>Each authenticated request verifies the signature and loads the user from the database.</dd>
@@ -2553,7 +2751,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q48"> Practised</label>
 </div></details>
 <details class="qa" id="q49" data-cat="sec" data-level="mid">
-<summary><span class="sumtext">Q49. How is authorization enforced?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q49. How is authorization enforced?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Admin routes use <code>get_current_admin</code> (role from the database, 403 otherwise). Conversations must belong to the caller (404 otherwise), and feedback is only accepted for messages in the caller's conversations.</dd>
 <dt>Explanation</dt><dd>Returning 404 instead of 403 avoids confirming that someone else's conversation exists.</dd>
@@ -2564,7 +2762,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q49"> Practised</label>
 </div></details>
 <details class="qa" id="q50" data-cat="sec" data-level="mid">
-<summary><span class="sumtext">Q50. What do the guardrails do, and what are their limits?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q50. What do the guardrails do, and what are their limits?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Replace five known prompt-injection phrases with a placeholder and mask card numbers, phone numbers and US SSNs before routing, embedding, caching or saving; injection on the raw text triggers a security reply.</dd>
 <dt>Explanation</dt><dd>Masking happens before persistence, so stored messages do not contain raw card numbers.</dd>
@@ -2575,7 +2773,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q50"> Practised</label>
 </div></details>
 <details class="qa" id="q51" data-cat="sec" data-level="adv" data-mock="11">
-<summary><span class="sumtext">Q51. What security weaknesses exist today?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q51. What security weaknesses exist today?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Orders readable by anyone who knows an ID; login/signup not rate-limited; voice transcripts not masked; tokens in URLs and <code>localStorage</code>; weak defaults (admin, demo, Postgres, Grafana passwords); Redis without auth; plain HTTP on the Azure VM; database ports published by Compose.</dd>
 <dt>Explanation</dt><dd>Rank them: transport + exposed ports + defaults first (easy, severe), then authorization on orders, then rate-limiting login.</dd>
@@ -2586,7 +2784,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q51"> Practised</label>
 </div></details>
 <details class="qa" id="q52" data-cat="sec" data-level="mid">
-<summary><span class="sumtext">Q52. Why run bcrypt in a thread?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q52. Why run bcrypt in a thread?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>bcrypt is intentionally slow (hundreds of milliseconds). On the event loop, a burst of logins would freeze every socket served by that process. <code>asyncio.to_thread</code> moves it to a worker thread.</dd>
 <dt>Explanation</dt><dd>A regression of this kind is invisible in unit tests but obvious under load.</dd>
@@ -2597,7 +2795,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q52"> Practised</label>
 </div></details>
 <details class="qa" id="q53" data-cat="sec" data-level="mid">
-<summary><span class="sumtext">Q53. Why no hard-coded JWT secret, and what happens if it is unset?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q53. Why no hard-coded JWT secret, and what happens if it is unset?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>A secret committed to a public repository lets anyone mint admin tokens. When unset, the settings validator generates a random 32-byte hex key per process and logs a warning.</dd>
 <dt>Explanation</dt><dd>Safe default, but tokens become invalid on restart and differ across replicas.</dd>
@@ -2608,7 +2806,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q53"> Practised</label>
 </div></details>
 <details class="qa" id="q54" data-cat="sec" data-level="adv">
-<summary><span class="sumtext">Q54. Where is the token stored in the browser, and what are the risks?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Security</span></span></summary>
+<summary><span class="sumtext">Q54. Where is the token stored in the browser, and what are the risks?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Security</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>In <code>localStorage</code> (<code>voxa_token</code>, <code>voxa_admin_token</code>) and in the WebSocket URL. Any injected script can read <code>localStorage</code>; URLs can be logged by proxies and servers.</dd>
 <dt>Explanation</dt><dd>The UI never renders raw HTML (<code>RichText</code>), which reduces XSS risk.</dd>
@@ -2619,7 +2817,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q54"> Practised</label>
 </div></details>
 <details class="qa" id="q55" data-cat="fe" data-level="mid">
-<summary><span class="sumtext">Q55. How does the chat page assemble streamed tokens?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Frontend</span></span></summary>
+<summary><span class="sumtext">Q55. How does the chat page assemble streamed tokens?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Frontend</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>For each <code>token_chunk</code> it finds the message that is still streaming with the same <code>trace_id</code> and appends the token; if none exists it creates a new assistant bubble. The final frame clears <code>streaming</code> and updates the telemetry HUD with throughput computed from chunk count and elapsed time.</dd>
 <dt>Explanation</dt><dd>Functional state updates (<code>setMessages(prev =&gt; …)</code>) avoid stale state when frames arrive quickly.</dd>
@@ -2630,7 +2828,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q55"> Practised</label>
 </div></details>
 <details class="qa" id="q56" data-cat="fe" data-level="intro">
-<summary><span class="sumtext">Q56. How does voice input work in the browser?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Frontend</span></span></summary>
+<summary><span class="sumtext">Q56. How does voice input work in the browser?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Frontend</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>The mic button starts the Web Speech API (<code>SpeechRecognition</code>) for one utterance with interim results, and opens the mic with <code>getUserMedia</code> only to drive the orb animation. When recognition ends, the transcript is sent as a normal <code>text_query</code>.</dd>
 <dt>Explanation</dt><dd><code>onend</code> is the single place that submits, so stopping manually or by silence sends exactly once.</dd>
@@ -2641,7 +2839,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q56"> Practised</label>
 </div></details>
 <details class="qa" id="q57" data-cat="fe" data-level="mid">
-<summary><span class="sumtext">Q57. Why must the frontend be rebuilt after changing <code>NEXT_PUBLIC_API_URL</code>?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Frontend</span></span></summary>
+<summary><span class="sumtext">Q57. Why must the frontend be rebuilt after changing <code>NEXT_PUBLIC_API_URL</code>?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Frontend</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Next.js replaces <code>process.env.NEXT_PUBLIC_*</code> with literal strings in the JavaScript bundle during <code>next build</code>; the browser never sees runtime environment variables.</dd>
 <dt>Explanation</dt><dd>That is why Compose passes them as build arguments, not runtime environment variables.</dd>
@@ -2652,7 +2850,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q57"> Practised</label>
 </div></details>
 <details class="qa" id="q58" data-cat="fe" data-level="mid">
-<summary><span class="sumtext">Q58. How is XSS avoided when rendering bot text?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Frontend</span></span></summary>
+<summary><span class="sumtext">Q58. How is XSS avoided when rendering bot text?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Frontend</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd><code>RichText</code> splits text on <code>**bold**</code> and <code>`code`</code> patterns and returns React elements; React escapes strings. There is no <code>dangerouslySetInnerHTML</code>.</dd>
 <dt>Explanation</dt><dd>Matters because bot text can echo user input.</dd>
@@ -2663,7 +2861,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q58"> Practised</label>
 </div></details>
 <details class="qa" id="q59" data-cat="ops" data-level="intro" data-mock="12">
-<summary><span class="sumtext">Q59. How did you deploy it on Azure?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q59. How did you deploy it on Azure?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>On a single Azure Linux VM: installed Docker and the Compose plugin, cloned the repo, configured the frontend's API URL to the VM's public IP on port 8088 (and CORS), ran <code>docker compose up --build -d</code>, and opened the needed ports in the network security group.</dd>
 <dt>Explanation</dt><dd>Git history shows the VM's Azure public IP configured as the frontend's API URL in commit <code>00e9a44</code>, plus image-size fixes the same day for the VM disk. The frontend must be <em>built</em> with that URL (Q57).</dd>
@@ -2674,7 +2872,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q59"> Practised</label>
 </div></details>
 <details class="qa" id="q60" data-cat="ops" data-level="mid">
-<summary><span class="sumtext">Q60. Why a VM with Compose instead of AKS or App Service?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q60. Why a VM with Compose instead of AKS or App Service?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>The same Compose file runs locally and in the cloud, it supports nine cooperating containers including workers and databases, and it is the cheapest, fastest way to a public demo.</dd>
 <dt>Explanation</dt><dd>PaaS options need a container registry, per-service configuration and managed databases; AKS adds cluster operations.</dd>
@@ -2685,7 +2883,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q60"> Practised</label>
 </div></details>
 <details class="qa" id="q61" data-cat="ops" data-level="mid">
-<summary><span class="sumtext">Q61. How would you add HTTPS to the Azure deployment?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q61. How would you add HTTPS to the Azure deployment?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Give the public IP a DNS name, run a reverse proxy (Caddy or Nginx) as another Compose service on ports 80/443 with an automatic Let's Encrypt certificate, route <code>/</code> to the frontend and <code>/v1</code> (including WebSocket upgrade) to the gateway, set <code>NEXT_PUBLIC_API_URL=https://…</code> so the client uses <code>wss://</code>, update CORS, and close 3000/8088 in the NSG.</dd>
 <dt>Explanation</dt><dd>Fixes encryption, makes the mic work (secure context), and lets you set <code>TRUST_FORWARDED_FOR=true</code> safely.</dd>
@@ -2696,7 +2894,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q61"> Practised</label>
 </div></details>
 <details class="qa" id="q62" data-cat="ops" data-level="adv" data-mock="13">
-<summary><span class="sumtext">Q62. What is exposed on the VM, and how would you lock it down?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q62. What is exposed on the VM, and how would you lock it down?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Compose publishes 3000, 8000, 8088, 5432 (Postgres, default password), 6379 (Redis, no password), 9090 (Prometheus) and 3001 (Grafana, admin/admin) on all interfaces. Whether the internet can reach them depends on the NSG. Lock down: remove the DB/Redis/Prometheus host port mappings or bind them to 127.0.0.1, allow only 443 (and 22 from your IP) in the NSG, set real passwords.</dd>
 <dt>Explanation</dt><dd>Docker's iptables rules bypass host firewalls such as ufw, so the NSG or the port mappings must do the job.</dd>
@@ -2707,7 +2905,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q62"> Practised</label>
 </div></details>
 <details class="qa" id="q63" data-cat="ops" data-level="mid">
-<summary><span class="sumtext">Q63. What happens when the VM reboots or you redeploy?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q63. What happens when the VM reboots or you redeploy?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Containers with <code>restart: unless-stopped</code> come back when Docker starts; database data persists in named volumes. If <code>JWT_SECRET_KEY</code> is unset, all tokens become invalid; recreated containers re-download models.</dd>
 <dt>Explanation</dt><dd>Redis uses AOF, so streams and cache survive restarts too.</dd>
@@ -2718,7 +2916,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q63"> Practised</label>
 </div></details>
 <details class="qa" id="q64" data-cat="ops" data-level="mid">
-<summary><span class="sumtext">Q64. Explain the Dockerfiles and why CPU-only PyTorch.</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q64. Explain the Dockerfiles and why CPU-only PyTorch.</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Gateway and workers use <code>python:3.11-slim</code>, install the CPU-only PyTorch wheel first (a fraction of the CUDA build's size), then requirements, copy code and run as uid 1001. The frontend uses a two-stage Node 20 build and runs as <code>node</code>.</dd>
 <dt>Explanation</dt><dd>The default PyTorch wheel bundles CUDA libraries; on a CPU-only VM they waste gigabytes — commit <code>61d6e3d</code> mentions disk exhaustion.</dd>
@@ -2729,7 +2927,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q64"> Practised</label>
 </div></details>
 <details class="qa" id="q65" data-cat="ops" data-level="mid">
-<summary><span class="sumtext">Q65. What do the Kubernetes manifests do, and were they used?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q65. What do the Kubernetes manifests do, and were they used?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>They describe Deployments for gateway (3 replicas with health probes) and workers, an HPA for the LLM worker (2–10 at 75 % CPU), a Postgres StatefulSet, Redis, a LoadBalancer Service and config/secrets. Nothing shows they were applied; images are never built or pushed and there is no frontend manifest.</dd>
 <dt>Explanation</dt><dd>Treat them as a design sketch for AKS.</dd>
@@ -2740,7 +2938,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q65"> Practised</label>
 </div></details>
 <details class="qa" id="q66" data-cat="ops" data-level="intro">
-<summary><span class="sumtext">Q66. How do you monitor the system?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Cloud &amp; DevOps</span></span></summary>
+<summary><span class="sumtext">Q66. How do you monitor the system?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Cloud &amp; DevOps</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Prometheus scrapes the gateway's <code>/metrics</code> (HTTP latency by route template, SSE TTFT, cache hits/misses, open WebSockets) every 5 s; the admin console shows DB- and Redis-derived numbers: average TTFT, p95 latency, cache ratio, worker heartbeats, queue backlog, tickets. Logs go to container stdout.</dd>
 <dt>Explanation</dt><dd>Route templates keep label cardinality bounded.</dd>
@@ -2751,7 +2949,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q66"> Practised</label>
 </div></details>
 <details class="qa" id="q67" data-cat="test" data-level="intro">
-<summary><span class="sumtext">Q67. How is the project tested?</span><span class="meta"><span class="badge b-lvl">Introductory</span><span class="badge b-lvl">Testing &amp; debugging</span></span></summary>
+<summary><span class="sumtext">Q67. How is the project tested?</span><span class="meta"><span class="badge lvl lvl-intro">Introductory</span><span class="badge cat">Testing &amp; debugging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>36 hermetic unit and regression tests (mocks and fakes instead of Redis/Postgres/models) plus 6 end-to-end tests that run only against a live stack, and a k6 WebSocket load script. I ran the unit suite: 36 passed, 6 skipped.</dd>
 <dt>Explanation</dt><dd>Regression tests each pin a previously fixed bug.</dd>
@@ -2762,7 +2960,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q67"> Practised</label>
 </div></details>
 <details class="qa" id="q68" data-cat="test" data-level="mid">
-<summary><span class="sumtext">Q68. How do the tests avoid downloading models?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Testing &amp; debugging</span></span></summary>
+<summary><span class="sumtext">Q68. How do the tests avoid downloading models?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Testing &amp; debugging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd><code>conftest.py</code> inserts a fake <code>sentence_transformers</code> module into <code>sys.modules</code> before any app import: a hashing bag-of-words encoder producing normalised 384-d vectors. Whisper and edge-tts are stubbed only if not installed.</dd>
 <dt>Explanation</dt><dd>Identical texts map to identical vectors, which is all the cache tests need.</dd>
@@ -2773,7 +2971,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q68"> Practised</label>
 </div></details>
 <details class="qa" id="q69" data-cat="test" data-level="mid">
-<summary><span class="sumtext">Q69. A user says answers are slow. How do you debug it?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Testing &amp; debugging</span></span></summary>
+<summary><span class="sumtext">Q69. A user says answers are slow. How do you debug it?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Testing &amp; debugging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Get the <code>trace_id</code> from the HUD; check its final frame (<code>ttft_ms</code> vs <code>total_latency_ms</code>, cache hit, breaker); grep logs for the trace; check <code>/metrics</code> latency histograms and cache hit rate; check queue backlog and heartbeats for the worker path; check container CPU (<code>docker stats</code>) — embeddings and Whisper are CPU-bound.</dd>
 <dt>Explanation</dt><dd>Separate "slow to start" (routing, DB, embedding) from "slow to finish" (30 ms per word pacing, long answers).</dd>
@@ -2784,7 +2982,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q69"> Practised</label>
 </div></details>
 <details class="qa" id="q70" data-cat="test" data-level="mid">
-<summary><span class="sumtext">Q70. How would you load test it?</span><span class="meta"><span class="badge b-lvl">Intermediate</span><span class="badge b-lvl">Testing &amp; debugging</span></span></summary>
+<summary><span class="sumtext">Q70. How would you load test it?</span><span class="meta"><span class="badge lvl lvl-mid">Intermediate</span><span class="badge cat">Testing &amp; debugging</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Run the k6 script (ramps to 500 WebSocket users) against a copy of the stack, after raising the per-IP rate limit because all virtual users share one IP; record p50/p95 TTFT, error frames, CPU and memory per container; repeat at each stage and find the knee.</dd>
 <dt>Explanation</dt><dd>State hardware and settings with any number you quote.</dd>
@@ -2795,7 +2993,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q70"> Practised</label>
 </div></details>
 <details class="qa" id="q71" data-cat="perf" data-level="adv" data-mock="14">
-<summary><span class="sumtext">Q71. Where are the bottlenecks?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Performance &amp; scale</span></span></summary>
+<summary><span class="sumtext">Q71. Where are the bottlenecks?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Performance &amp; scale</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Gateway CPU for embeddings (up to three per cache miss) and a single Python process per container; the semantic cache's linear scan and ~400 KB transfer per lookup; the LLM worker's sequential processing with 30 ms/word pacing (~0.6 answers/s per worker for a 52-word answer); the Whisper worker's CPU; Redis as a shared dependency; PostgreSQL connection limits.</dd>
 <dt>Explanation</dt><dd>Show the arithmetic: 52 words × 30 ms ≈ 1.6 s per answer per worker.</dd>
@@ -2806,7 +3004,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q71"> Practised</label>
 </div></details>
 <details class="qa" id="q72" data-cat="perf" data-level="adv">
-<summary><span class="sumtext">Q72. How would you scale to 10× the users?</span><span class="meta"><span class="badge b-lvl">Advanced</span><span class="badge b-lvl">Performance &amp; scale</span></span></summary>
+<summary><span class="sumtext">Q72. How would you scale to 10× the users?</span><span class="meta"><span class="badge lvl lvl-adv">Advanced</span><span class="badge cat">Performance &amp; scale</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Measure first. Then: several gateway replicas behind a TLS load balancer (Pub/Sub already decouples workers), one shared router through workers if an LLM is added, concurrent worker processing, an indexed semantic cache, managed PostgreSQL with PgBouncer and read replicas for analytics, managed Redis with persistence and failover, autoscaling workers on queue length, and per-replica metrics with service discovery.</dd>
 <dt>Explanation</dt><dd>Start from the bottleneck list (Q71) and capacity estimates in <a href="#sysdesign">system design</a>.</dd>
@@ -2817,7 +3015,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q72"> Practised</label>
 </div></details>
 <details class="qa" id="q73" data-cat="perf" data-level="curve">
-<summary><span class="sumtext">Q73. Two users ask the same new policy question at the same moment. What happens?</span><span class="meta"><span class="badge b-lvl">Curveball</span><span class="badge b-lvl">Performance &amp; scale</span></span></summary>
+<summary><span class="sumtext">Q73. Two users ask the same new policy question at the same moment. What happens?</span><span class="meta"><span class="badge lvl lvl-curve">Curveball</span><span class="badge cat">Performance &amp; scale</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Both miss the cache (nothing stored yet), both embed and search the knowledge base, and both store an entry — under the same key (SHA-256 of the lower-cased query), so the second write overwrites the first with an identical answer. No harm, just duplicated work (a cache stampede in miniature).</dd>
 <dt>Explanation</dt><dd>Under high load, many identical misses can pile onto the database.</dd>
@@ -2828,7 +3026,7 @@ docker compose up --build -d</code></pre></li>
 <label class="practiced"><input type="checkbox" data-practice="q73"> Practised</label>
 </div></details>
 <details class="qa" id="q74" data-cat="perf" data-level="curve">
-<summary><span class="sumtext">Q74. The same question gives different answers over REST and WebSocket. Why?</span><span class="meta"><span class="badge b-lvl">Curveball</span><span class="badge b-lvl">Performance &amp; scale</span></span></summary>
+<summary><span class="sumtext">Q74. The same question gives different answers over REST and WebSocket. Why?</span><span class="meta"><span class="badge lvl lvl-curve">Curveball</span><span class="badge cat">Performance &amp; scale</span></span></summary>
 <div class="body"><dl>
 <dt>Direct answer</dt><dd>Two routers. WebSocket text uses <code>answer_text_query</code> with security, escalation, policy, order, greeting and KB rules. REST SSE and voice go to the LLM worker, which only uses <code>detect_tool_intent</code> (orders, refunds, an escalation regex that includes "angry" and "terrible") and then the knowledge base. "Do you charge VAT for UK shipping?" gets the DDP policy text on the WebSocket but a KB passage or fallback via REST.</dd>
 <dt>Explanation</dt><dd>Duplicated business logic drifts; a single shared module would fix it.</dd>
@@ -3547,6 +3745,17 @@ async def route(q):        # shared by gateway and workers -&gt; no drift
     var tag = (document.activeElement && document.activeElement.tagName) || '';
     if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(tag)) { e.preventDefault(); input.focus(); }
     if (e.key === 'Escape' && sidebar.classList.contains('open')) setMenu(false);
+  });
+
+  // Collapsed <details> content is not printed, so open everything for the printout.
+  var printOpened = [];
+  window.addEventListener('beforeprint', function () {
+    printOpened = $$('details:not([open])');
+    printOpened.forEach(function (d) { d.open = true; });
+  });
+  window.addEventListener('afterprint', function () {
+    printOpened.forEach(function (d) { d.open = false; });
+    printOpened = [];
   });
 
   onScroll();
