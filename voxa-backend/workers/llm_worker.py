@@ -21,7 +21,7 @@ import redis.asyncio as aioredis
 from app.agent_tools import detect_tool_intent, execute_tool_call
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.queue_manager import session_channel
+from app.queue_manager import keep_claimed, session_channel
 from app.rag_engine import rag_engine
 
 logging.basicConfig(level=logging.INFO)
@@ -152,10 +152,20 @@ class LLMWorker:
         await redis.xack(self.stream_name, self.group_name, msg_id)
 
     async def process_batch(self, batch: List[Tuple[str, dict]], redis: aioredis.Redis):
-        """Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order."""
+        """
+        Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order.
+        Entries still waiting their turn are kept claimed so the supervisor does not mistake
+        them for stranded work and enqueue duplicates.
+        """
         logger.info(f"⚡ Processing micro-batch of {len(batch)} items...")
-        for msg_id, payload in batch:
-            await self.process_message(msg_id, payload, redis)
+        claim_task = asyncio.create_task(
+            keep_claimed(redis, self.stream_name, self.group_name, self.worker_id, [m for m, _ in batch])
+        )
+        try:
+            for msg_id, payload in batch:
+                await self.process_message(msg_id, payload, redis)
+        finally:
+            claim_task.cancel()
 
     async def run(self):
         redis = aioredis.from_url(self.redis_url, decode_responses=True)

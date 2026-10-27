@@ -269,12 +269,12 @@ async def chat_completions(
     async def sse_event_generator():
         session_id = str(uuid.uuid4())
         pubsub = queue_manager.redis.pubsub()
-        # Subscribe BEFORE publishing the task so no worker event can be missed.
-        await pubsub.subscribe(session_channel(session_id))
         tokens: list[str] = []
         ttft_ms: Optional[int] = None
         completed = False
         try:
+            # Subscribe BEFORE publishing the task so no worker event can be missed.
+            await pubsub.subscribe(session_channel(session_id))
             await queue_manager.publish_llm_task(
                 session_id=session_id,
                 user_id=str(current_user.id),
@@ -496,13 +496,6 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
     async def send_error(message: str, trace_id: Optional[str] = None):
         await websocket.send_json({"type": "error", "message": message, "session_id": session_id, "trace_id": trace_id})
 
-    async def within_rate_limit() -> bool:
-        try:
-            return await rate_limiter.check_rate_limit(rate_identity)
-        except Exception as e:
-            logger.warning(f"Rate limiter unavailable, admitting request: {e}")
-            return True  # fail open: a Redis blip should not take the chat offline
-
     try:
         try:
             await pubsub.subscribe(channel)
@@ -539,7 +532,7 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
                 if len(audio_b64) > settings.WS_MAX_AUDIO_CHUNK_B64_CHARS:
                     await send_error("Audio chunk too large.", trace_id)
                     continue
-                if not await within_rate_limit():
+                if not await rate_limiter.check_rate_limit(rate_identity):
                     await send_error("Rate limit exceeded. Please slow down.", trace_id)
                     continue
                 try:
@@ -566,7 +559,7 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
                 if len(query) > settings.WS_MAX_TEXT_QUERY_CHARS:
                     await send_error(f"Message too long (max {settings.WS_MAX_TEXT_QUERY_CHARS} characters).", trace_id)
                     continue
-                if not await within_rate_limit():
+                if not await rate_limiter.check_rate_limit(rate_identity):
                     await send_error("Rate limit exceeded. Please wait a minute before sending more messages.", trace_id)
                     continue
 
@@ -588,11 +581,12 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
                 cache_hit = False
                 try:
                     response_text, cache_hit = await answer_text_query(query, clean_query, authenticated_user_id)
-                    await circuit_breaker.record_success(AI_SERVICE)
                 except Exception as worker_err:
                     logger.error(f"[{trace_id}] Error executing agent query: {worker_err}")
                     await circuit_breaker.record_failure(AI_SERVICE)
                     response_text = "I encountered an unexpected issue while retrieving your inquiry. Our support team has been notified."
+                else:
+                    await circuit_breaker.record_success(AI_SERVICE)
 
                 # 2. Stream the answer word-by-word (paced so the UI renders progressively)
                 ttft_ms = int((time.time() - start_time) * 1000)
