@@ -109,7 +109,7 @@ async def seed_database():
             db.add_all(kb_entries)
             await db.commit()
             
-        logger.info("🎉 Database seeding completed successfully!")
+        logger.info("Database seeding complete")
 
 async def _main():
     await init_db()

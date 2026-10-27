@@ -81,7 +81,7 @@ AI_SERVICE = "ai_worker"  # circuit-breaker key shared by every inference path
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Voxa 2.0 Edge Gateway...")
+    logger.info("Starting Voxa gateway")
     await init_db()
     try:
         await seed_database()
@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Embedding model warm-up failed: {e}")
     yield
-    logger.info("🛑 Shutting down Voxa 2.0 Edge Gateway...")
+    logger.info("Shutting down Voxa gateway")
     await engine.dispose()
 
 

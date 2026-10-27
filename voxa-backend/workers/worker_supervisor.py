@@ -41,7 +41,7 @@ class WorkerSupervisor:
                 pending_count = pending_summary.get("pending", 0)
                 
                 if pending_count > 0:
-                    logger.info(f"🔍 Found {pending_count} pending messages in {stream_name} ({group_name})")
+                    logger.info(f"{pending_count} pending entries in {stream_name} ({group_name})")
                     
                     # Only entries idle past the threshold (Redis >= 6.2 IDLE filter), so
                     # busy-but-healthy entries at the head of the PEL cannot hide stranded ones.
@@ -74,19 +74,19 @@ class WorkerSupervisor:
                         attempts = max(int(payload.get("retry_count", 0) or 0), int(delivery_count)) + 1
 
                         if attempts > self.max_attempts:
-                            logger.warning(f"☠️ Poison payload detected [{msg_id}]. Moving to DLQ...")
+                            logger.warning(f"Entry {msg_id} exceeded {self.max_attempts} attempts; moving it to the DLQ")
                             await redis.xadd(settings.STREAM_DLQ, {
                                 **payload,
                                 "origin_stream": stream_name,
                                 "reason": f"Exceeded maximum delivery attempts ({self.max_attempts})"
                             }, maxlen=settings.STREAM_MAXLEN, approximate=True)
                         else:
-                            logger.info(f"♻️ Reclaiming stranded task {msg_id} (Idle: {idle_time}ms, Attempt: {attempts})...")
+                            logger.info(f"Reclaiming stranded entry {msg_id} (idle {idle_time}ms, attempt {attempts})")
                             payload["retry_count"] = str(attempts)
                             payload["reclaimed_from_msg_id"] = str(msg_id)
                             # Re-append so any live consumer in the group picks it up.
                             await redis.xadd(stream_name, payload, maxlen=settings.STREAM_MAXLEN, approximate=True)
-                            logger.info(f"✅ Successfully re-enqueued stranded task {msg_id} for active workers.")
+                            logger.info(f"Re-queued stranded entry {msg_id}")
                         await redis.xack(stream_name, group_name, msg_id)
             except ResponseError as e:
                 if "NOGROUP" in str(e):
@@ -99,7 +99,7 @@ class WorkerSupervisor:
 
     async def run(self):
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
-        logger.info("🛡️ Worker Supervisor Daemon active. Monitoring PEL and heartbeats...")
+        logger.info("Worker supervisor started; watching pending entries")
         
         while True:
             await self.scan_and_reclaim_stranded_tasks(redis)

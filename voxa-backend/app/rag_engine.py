@@ -116,7 +116,7 @@ class RAGEngine:
                 # Cosine similarity for normalized unit vectors is dot product
                 cosine_sim = float(np.dot(query_vec, cached_vec))
                 if cosine_sim >= threshold:
-                    logger.info(f"⚡ Semantic Cache HIT! (Cosine Sim: {cosine_sim:.4f})")
+                    logger.info(f"Semantic cache hit (cosine similarity {cosine_sim:.4f})")
                     SEMANTIC_CACHE_HITS.inc()
                     # Redis counters are shared by all replicas and feed /v1/admin/metrics
                     await self.redis.incr("metric:semantic_cache_hit_total")

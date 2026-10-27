@@ -37,7 +37,7 @@ class LLMWorker:
         self.group_name = "llm_group"
         self.batch_window_ms = 15  # XREADGROUP block time used to coalesce a micro-batch
         self.max_batch_size = 8
-        logger.info(f"🧠 LLM worker {self.worker_id} ready (deterministic router + pgvector RAG).")
+        logger.info(f"LLM worker {self.worker_id} initialised (deterministic router + pgvector RAG)")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
@@ -129,7 +129,7 @@ class LLMWorker:
         Entries still waiting their turn are kept claimed so the supervisor does not mistake
         them for stranded work and enqueue duplicates.
         """
-        logger.info(f"⚡ Processing micro-batch of {len(batch)} items...")
+        logger.info(f"Processing batch of {len(batch)} tasks")
         claim_task = asyncio.create_task(
             keep_claimed(redis, self.stream_name, self.group_name, self.worker_id, [m for m, _ in batch])
         )
@@ -156,7 +156,7 @@ class LLMWorker:
 
         # Keep a reference: asyncio only holds weak references to running tasks.
         self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
-        logger.info(f"🚀 LLM Worker {self.worker_id} started listening on {self.stream_name}...")
+        logger.info(f"LLM worker {self.worker_id} started listening on {self.stream_name}")
 
         while True:
             try:
@@ -169,7 +169,7 @@ class LLMWorker:
                 )
                 pending_batch = [(m_id, p) for _s, msgs in (pending_events or []) for m_id, p in msgs]
                 if pending_batch:
-                    logger.info(f"🔄 Recovered {len(pending_batch)} unacknowledged tasks.")
+                    logger.info(f"Recovered {len(pending_batch)} unacknowledged tasks")
                     await self.process_batch(pending_batch, redis)
                     continue
 

@@ -42,9 +42,9 @@ class STTWorker:
             # No silent fallback: if the model cannot load, the worker must crash so the
             # orchestrator restarts it and the failure is visible, instead of answering
             # every utterance with fabricated text.
-            logger.info(f"🎙️ Loading Faster-Whisper [{model_size}] with INT8 quantization...")
+            logger.info(f"Loading Faster-Whisper [{model_size}] with INT8 quantization")
             self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
-            logger.info("✅ Faster-Whisper loaded.")
+            logger.info("Faster-Whisper loaded")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
@@ -93,7 +93,7 @@ class STTWorker:
             # logged, queued in Redis or routed.
             text_result = sanitize_user_input(text_result)
             stt_latency_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"🗣️ Transcribed [Session: {session_id}] ({stt_latency_ms}ms): '{text_result}'")
+            logger.info(f"Transcribed session {session_id} in {stt_latency_ms}ms: '{text_result}'")
 
             if not text_result:
                 await redis.publish(session_channel(session_id), json.dumps({
@@ -168,7 +168,7 @@ class STTWorker:
 
         # Keep a reference: asyncio only holds weak references to running tasks.
         self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
-        logger.info(f"🚀 STT Worker {self.worker_id} started listening on {self.stream_name}...")
+        logger.info(f"STT worker {self.worker_id} started listening on {self.stream_name}")
 
         while True:
             try:

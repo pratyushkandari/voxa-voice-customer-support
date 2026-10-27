@@ -26,7 +26,7 @@ class TTSWorker:
         self.group_name = "tts_group"
         self.voice = voice
 
-        logger.info(f"🔊 Initialized Neural Voice TTS Worker [{self.voice}] (ID: {self.worker_id})...")
+        logger.info(f"TTS worker {self.worker_id} initialised with voice {self.voice}")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
@@ -56,7 +56,7 @@ class TTSWorker:
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
             latency_ms = int((time.time() - start_time) * 1000)
 
-            logger.info(f"🎙️ Synthesized audio for session {session_id} in {latency_ms}ms ({len(audio_bytes)} bytes)")
+            logger.info(f"Synthesized audio for session {session_id} in {latency_ms}ms ({len(audio_bytes)} bytes)")
 
             # Publish audio stream event to session Pub/Sub channel
             await redis.publish(session_channel(session_id), json.dumps({
@@ -82,7 +82,7 @@ class TTSWorker:
 
         # Keep a reference: asyncio only holds weak references to running tasks.
         self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
-        logger.info(f"🚀 TTS Worker {self.worker_id} started listening on {self.stream_name}...")
+        logger.info(f"TTS worker {self.worker_id} started listening on {self.stream_name}")
 
         while True:
             try:
