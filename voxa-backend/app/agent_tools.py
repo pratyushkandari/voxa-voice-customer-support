@@ -17,7 +17,9 @@ from app.guardrails import detect_prompt_injection
 from app.models import Order, SupportTicket
 from app.rag_engine import rag_engine
 
-ORDER_ID_PATTERN = re.compile(r"\bord-\d{4,6}\b", re.IGNORECASE)
+# Accepts "ORD-88412", "ORD 88412" and "ORD88412": speech-to-text writes spoken order IDs
+# without the hyphen. The leading \b keeps words such as "record-12345" from matching.
+ORDER_ID_PATTERN = re.compile(r"\bord[-\s]?(\d{4,6})\b", re.IGNORECASE)
 
 
 async def _find_visible_order(order_id: str, db: AsyncSession, requester_id: Optional[uuid.UUID]) -> Optional[Order]:
@@ -173,7 +175,7 @@ async def answer_text_query(raw_query: str, clean_query: str, user_id: Optional[
 
     # Priority 10: SQL Database Order Lookup & Refund (never cached: user-specific data)
     if order_match:
-        order_id = order_match.group(0).upper()
+        order_id = f"ORD-{order_match.group(1)}"
         async with AsyncSessionLocal() as db_session:
             if "refund" in prompt_lower or "return" in prompt_lower:
                 tool_result = await check_refund_eligibility(order_id, db_session, user_id)
