@@ -15,15 +15,13 @@ __pycache__/
 htmlcov/
 *.egg-info/
 
-# Environments & Large Models
+# Environments
 .env
 .env.local
 .env.*.local
 venv/
 .venv/
 env/
-voxa-env/
-model3/
 
 # Logs & OS artifacts
 *.log

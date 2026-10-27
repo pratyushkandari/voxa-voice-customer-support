@@ -7,8 +7,7 @@ the TTS stream.
 Answer generation is deterministic: prompts go through ``answer_text_query``, the same
 priority-ordered router the gateway uses for WebSocket text queries (guardrails, tools
 against PostgreSQL, canned policies, semantic cache, pgvector knowledge base), so REST,
-voice and console users get identical answers. ``LLM_MODEL_NAME`` names the
-generative model this worker is designed to host, but no generative model is loaded yet.
+voice and console users get identical answers. No generative model is involved.
 """
 import asyncio
 import json
@@ -30,17 +29,14 @@ MAX_ATTEMPTS = 3
 
 
 class LLMWorker:
-    def __init__(self, model_name: str = settings.LLM_MODEL_NAME, redis_url: str = settings.REDIS_URL):
+    def __init__(self, redis_url: str = settings.REDIS_URL):
         self.worker_id = f"llm-worker-{str(uuid.uuid4())[:8]}"
         self.redis_url = redis_url
         self.stream_name = settings.STREAM_LLM_INFERENCE
         self.group_name = "llm_group"
         self.batch_window_ms = 15  # XREADGROUP block time used to coalesce a micro-batch
         self.max_batch_size = 8
-        logger.info(
-            f"🧠 LLM worker {self.worker_id} ready (deterministic tool routing + pgvector RAG; "
-            f"generative model '{model_name}' is not loaded)."
-        )
+        logger.info(f"🧠 LLM worker {self.worker_id} ready (deterministic router + pgvector RAG).")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:

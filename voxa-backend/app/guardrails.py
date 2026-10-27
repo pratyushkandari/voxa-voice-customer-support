@@ -56,22 +56,11 @@ def detect_prompt_injection(text: str) -> bool:
 
 def sanitize_user_input(user_input: str) -> str:
     """
-    Neutralises injection phrases and masks PII, returning plain text.
-
-    Use this for routing, embeddings, caching and persistence. Do NOT embed the
-    delimiter-wrapped form from ``sanitize_and_isolate_prompt``: the shared wrapper
-    tokens would inflate cosine similarity between unrelated queries.
+    Neutralises injection phrases and masks PII, returning plain text. Used for routing,
+    embeddings, caching and persistence. Idempotent: sanitising twice changes nothing.
     """
     cleaned_input = user_input
     for pattern in PROMPT_INJECTION_PATTERNS:
         cleaned_input = pattern.sub(INJECTION_PLACEHOLDER, cleaned_input)
     cleaned_input, _ = mask_pii(cleaned_input)
     return cleaned_input.strip()
-
-
-def sanitize_and_isolate_prompt(user_input: str) -> str:
-    """
-    Sanitises input and wraps it in strict delimitation tags so it can be embedded in
-    an LLM prompt without escaping the system instructions.
-    """
-    return f"### USER_INPUT ###\n{sanitize_user_input(user_input)}\n### END_USER_INPUT ###"

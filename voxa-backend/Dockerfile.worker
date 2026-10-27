@@ -3,10 +3,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# ffmpeg lets Faster-Whisper decode WAV, WebM/Opus and OGG uploads
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
     ffmpeg \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

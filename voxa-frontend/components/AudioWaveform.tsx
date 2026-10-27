@@ -3,12 +3,11 @@
 import React, { useEffect, useRef } from 'react';
 
 interface AudioWaveformProps {
-  isActive?: boolean;
   isPlaying?: boolean;
 }
 
-export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive, isPlaying }) => {
-  const active = isActive || isPlaying || false;
+export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isPlaying }) => {
+  const active = isPlaying || false;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {

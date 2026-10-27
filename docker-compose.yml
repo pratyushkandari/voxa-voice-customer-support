@@ -71,7 +71,6 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-adminpassword123}
       - CORS_ALLOW_ORIGIN_REGEX=${CORS_ALLOW_ORIGIN_REGEX:-}
-      - ENVIRONMENT=production
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,7 +111,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/voxa_db
       - REDIS_URL=redis://redis:6379/0
-      - LLM_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
     depends_on:
       postgres:
         condition: service_healthy
