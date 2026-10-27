@@ -215,7 +215,23 @@ export default function ChatPage() {
       const token = localStorage.getItem('voxa_token');
       const url = `${WS_BASE_URL}/v1/ws/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       setConnectionState('connecting');
-      const ws = new WebSocket(url);
+      const scheduleReconnect = () => {
+        setConnectionState('closed');
+        const delay = Math.min(10000, 1000 * 2 ** attempts);
+        attempts += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
+
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        // The constructor throws synchronously for an invalid URL or a blocked ws://
+        // from an https page; treat it like a failed connection instead of crashing.
+        console.warn('Could not open the gateway WebSocket:', err);
+        scheduleReconnect();
+        return;
+      }
       socket = ws;
       wsRef.current = ws;
 
@@ -228,10 +244,7 @@ export default function ChatPage() {
         if (wsRef.current === ws) wsRef.current = null;
         if (disposed) return;
         setIsSpeaking(false);
-        setConnectionState('closed');
-        const delay = Math.min(10000, 1000 * 2 ** attempts);
-        attempts += 1;
-        retryTimer = setTimeout(connect, delay);
+        scheduleReconnect();
       };
     };
 
@@ -420,7 +433,7 @@ export default function ChatPage() {
               <Headphones className="w-5 h-5 text-white" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight text-white">Voxa Support</h1>
+              <p className="text-sm font-bold tracking-tight text-white">Voxa Support</p>
               <p className="text-[11px] text-slate-400">Live Voice & Knowledge Console</p>
             </div>
           </div>
@@ -451,7 +464,7 @@ export default function ChatPage() {
 
           {/* Quick Inquiry Actions */}
           <div className="mt-8">
-            <span className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+            <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
               Frequent Support Inquiries
             </span>
             <div className="mt-3 space-y-2">
@@ -489,13 +502,14 @@ export default function ChatPage() {
               type="button"
               onClick={() => router.push('/')}
               aria-label="Back to home"
-              className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors lg:hidden"
+              title="Back to home"
+              className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors flex-shrink-0"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white tracking-tight truncate">Support Session Console</h2>
+                <h1 className="text-sm font-bold text-white tracking-tight truncate">Support Session Console</h1>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-semibold border flex-shrink-0 ${
                     isConnected
@@ -582,7 +596,7 @@ export default function ChatPage() {
 
                   {/* Metadata Footer (only for real, measured responses) */}
                   {msg.sender === 'assistant' && !msg.isError && msg.ttftMs !== undefined && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between gap-3 text-[10px] text-slate-500 font-mono">
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between gap-3 text-[10px] text-slate-400 font-mono">
                       <div className="flex flex-wrap items-center gap-2">
                         {msg.cacheHit && (
                           <span className="text-emerald-400 font-semibold flex items-center gap-1">
@@ -640,9 +654,27 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Quick actions for small screens, where the sidebar is hidden */}
+        <div className="lg:hidden border-t border-slate-800/80 bg-slate-950/80 px-3 pt-2.5">
+          <div className="max-w-4xl mx-auto flex gap-2 overflow-x-auto pb-0.5" role="group" aria-label="Frequent support inquiries">
+            {QUICK_ACTIONS.map(({ label, query, icon: Icon, color, hover }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => handleSendMessage(query)}
+                disabled={!isConnected}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 ${hover} text-[11px] text-slate-300 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400`}
+              >
+                <Icon className={`w-3 h-3 ${color}`} aria-hidden="true" />
+                <span className="whitespace-nowrap">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Input Controls Bar */}
         <form
-          className="p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md"
+          className="p-3 sm:p-4 lg:border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md"
           onSubmit={(e) => {
             e.preventDefault();
             handleSendMessage();
@@ -683,7 +715,7 @@ export default function ChatPage() {
                       ? 'Type an order, refund or warranty question…'
                       : 'Waiting for the gateway connection…'
                 }
-                className="w-full bg-slate-900/90 border border-slate-800/90 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all"
+                className="w-full bg-slate-900/90 border border-slate-800/90 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all"
               />
             </div>
 
