@@ -1,10 +1,12 @@
 """
-Prometheus metrics and the correlation-ID / latency middleware.
+Prometheus metrics, the correlation-ID / latency middleware and access-log redaction.
 
 Metrics live in the process-local default registry, which is why the gateway runs a
 single uvicorn worker per container and scales by adding replicas (each scraped
 separately) instead of ``--workers N``.
 """
+import logging
+import re
 import time
 import uuid
 
@@ -90,3 +92,29 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
 def get_prometheus_metrics():
     """Returns Prometheus exposition format metrics."""
     return generate_latest(), CONTENT_TYPE_LATEST
+
+# ================= Log Redaction =================
+
+_TOKEN_QUERY_PARAM = re.compile(r"([?&]token=)[^&\s\"]+")
+
+
+class RedactTokenFilter(logging.Filter):
+    """
+    Browsers cannot set headers on a WebSocket handshake, so the console sends its JWT as
+    ``/v1/ws/stream?token=...`` and uvicorn logs that full path. This filter masks the
+    token value so bearer credentials never reach log files or log shippers.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _TOKEN_QUERY_PARAM.sub(r"\1[REDACTED]", message)
+        if redacted != message:
+            record.msg, record.args = redacted, ()
+        return True
+
+
+def install_log_redaction() -> None:
+    """Attaches ``RedactTokenFilter`` to uvicorn's loggers (idempotent)."""
+    for name in ("uvicorn.error", "uvicorn.access"):
+        target = logging.getLogger(name)
+        if not any(isinstance(f, RedactTokenFilter) for f in target.filters):
+            target.addFilter(RedactTokenFilter())

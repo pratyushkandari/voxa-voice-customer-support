@@ -4,6 +4,7 @@ behaviour that was previously broken.
 """
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
@@ -182,6 +183,32 @@ def test_tampered_token_is_rejected():
 def test_non_uuid_subject_does_not_crash():
     """A token whose 'sub' is not a UUID used to raise ValueError (HTTP 500)."""
     assert user_id_from_token(create_access_token({"sub": "user-12345"})) is None
+
+
+def test_login_and_signup_are_rate_limited(monkeypatch):
+    """Credential endpoints had no rate limit, so the seeded admin password could be brute-forced."""
+    from app.main import app
+    from app.rate_limiter import rate_limiter
+
+    monkeypatch.setattr(rate_limiter, "check_rate_limit", AsyncMock(return_value=False))
+    client = TestClient(app)
+    for path in ("/v1/auth/login", "/v1/auth/signup"):
+        res = client.post(path, json={"email": "admin@voxa.ai", "password": "guess-123"})
+        assert res.status_code == 429, path
+
+
+def test_websocket_token_is_redacted_from_server_logs():
+    """uvicorn logged '/v1/ws/stream?token=<JWT>' verbatim, leaking bearer tokens into logs."""
+    import app.main  # noqa: F401  (installs the filter on import)
+
+    record = logging.LogRecord(
+        "uvicorn.error", logging.INFO, __file__, 1, '%s - "WebSocket %s" [accepted]',
+        ("127.0.0.1:5000", "/v1/ws/stream?token=eyJhbGciOi.payload.sig"), None,
+    )
+    for log_filter in logging.getLogger("uvicorn.error").filters:
+        log_filter.filter(record)
+    assert "eyJhbGciOi" not in record.getMessage()
+    assert "/v1/ws/stream?token=[REDACTED]" in record.getMessage()
 
 
 def test_missing_jwt_secret_generates_random_secret():

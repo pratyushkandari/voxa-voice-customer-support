@@ -1,9 +1,15 @@
 # Local / single-host deployment of the full stack.
 # Optional overrides go in a root-level .env file (read by Compose for ${VAR} substitution):
 #   JWT_SECRET_KEY            stable signing key (unset => random per gateway start)
-#   SEED_ADMIN_PASSWORD       password for the seeded admin@voxa.ai account
+#   SEED_ADMIN_PASSWORD       password for the seeded admin@voxa.ai account (first start only)
+#   POSTGRES_PASSWORD         database password (first start only: it is stored in the volume)
+#   GRAFANA_ADMIN_PASSWORD    Grafana admin password (default: admin)
 #   CORS_ALLOW_ORIGIN_REGEX   browser origins allowed to call the API (default: localhost)
 #   NEXT_PUBLIC_API_URL       gateway URL as seen by the BROWSER (baked into the frontend build)
+#
+# Only the frontend (3000) and the gateway (8088) are published on every interface.
+# PostgreSQL, Redis, Prometheus and Grafana are bound to 127.0.0.1 so a cloud VM never
+# exposes them to the internet; reach them remotely through an SSH tunnel.
 services:
   # =======================================================
   # 1. PostgreSQL 16 with pgvector extension
@@ -14,10 +20,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: voxa_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,7 +43,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -58,10 +64,9 @@ services:
     container_name: voxa-gateway
     restart: unless-stopped
     ports:
-      - "8000:8000"
       - "8088:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/voxa_db
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/voxa_db
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-adminpassword123}
@@ -105,7 +110,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "workers.llm_worker"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/voxa_db
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/voxa_db
       - REDIS_URL=redis://redis:6379/0
       - LLM_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
     depends_on:
@@ -184,7 +189,7 @@ services:
     volumes:
       - ./voxa-backend/telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
       - voxa-network
 
@@ -196,9 +201,9 @@ services:
     container_name: voxa-grafana
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
