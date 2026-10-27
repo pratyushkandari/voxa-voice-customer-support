@@ -4,19 +4,20 @@ Voxa FastAPI gateway: REST API, SSE chat endpoint and the full-duplex WebSocket 
 Request paths
 -------------
 * ``/v1/ws/stream`` (WebSocket) - the path used by the web console.
-    - ``text_query``: answered in-process by the deterministic intent router below
-      (guardrails -> tools / canned policy answers -> semantic cache -> pgvector RAG),
-      streamed back word-by-word and persisted for authenticated users.
+    - ``text_query``: answered in-process by the deterministic intent router
+      (``app.agent_tools.answer_text_query``: guardrails -> tools / canned policy
+      answers -> semantic cache -> pgvector RAG), streamed back word-by-word and
+      persisted for authenticated users.
     - ``audio_chunk``: base64 audio pushed to the STT stream; worker events
       (LLM tokens, TTS audio, errors) arrive on Redis Pub/Sub channel
       ``token:stream:{session_id}`` and are forwarded to the socket.
-* ``POST /v1/chat/completions`` (SSE) - dispatches the prompt to the LLM worker over
-  Redis Streams and relays its token events; falls back on timeout / open breaker.
+* ``POST /v1/chat/completions`` (SSE) - dispatches the prompt to the LLM worker (which
+  runs the same router) over Redis Streams and relays its token events; falls back on
+  timeout / open breaker.
 """
 import asyncio
 import json
 import logging
-import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -29,9 +30,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_tools import (
-    ORDER_ID_PATTERN,
+    answer_text_query,
     check_refund_eligibility,
-    detect_tool_intent,
     escalate_to_human,
     lookup_order,
 )
@@ -47,7 +47,7 @@ from app.auth import (
 from app.circuit_breaker import circuit_breaker
 from app.config import settings
 from app.database import AsyncSessionLocal, engine, get_db, init_db
-from app.guardrails import detect_prompt_injection, sanitize_user_input
+from app.guardrails import sanitize_user_input
 from app.models import Conversation, FeedbackRating, Message, SupportTicket, User
 from app.queue_manager import queue_manager, session_channel
 from app.rag_engine import rag_engine
@@ -207,20 +207,19 @@ async def chat_completions(
     Server-Sent Events endpoint. Every response is ``text/event-stream``; each frame is
     ``{"token", "ttft_ms", "trace_id"}`` and the last one has ``"is_final": true``.
 
-    Flow: guardrails -> circuit breaker -> semantic cache (generic questions only) ->
-    persist user message -> dispatch to the LLM worker via Redis Streams -> relay the
-    worker's Pub/Sub token events. If the worker does not finish within
-    LLM_RESPONSE_TIMEOUT_SEC the breaker records a failure and a fallback is returned.
+    Flow: guardrails -> circuit breaker -> persist user message -> dispatch to the LLM
+    worker via Redis Streams -> relay the worker's Pub/Sub token events. The worker
+    answers with the same router as the WebSocket path (including its semantic cache).
+    If the worker does not finish within LLM_RESPONSE_TIMEOUT_SEC the breaker records a
+    failure and a fallback is returned.
     """
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
     start_time = time.time()
 
     # 1. Ingress guardrails: neutralise injection phrases and mask PII before the text
-    #    is cached, persisted or sent to a worker.
+    #    is persisted or sent to a worker (the placeholder still trips the router's
+    #    injection check).
     clean_prompt = sanitize_user_input(chat_req.message)
-    has_tool, _, _ = detect_tool_intent(clean_prompt)
-    # Tool answers are user-specific (orders) or side-effecting (tickets): never cache them.
-    cacheable = not has_tool and not detect_prompt_injection(chat_req.message)
 
     # 2. Resolve the conversation, enforcing ownership (prevents writing into another
     #    user's thread by guessing its UUID).
@@ -248,15 +247,7 @@ async def chat_completions(
     if not can_proceed:
         return single_event_response(circuit_breaker.get_fallback_response(), circuit_breaker=cb_state)
 
-    # 4. Semantic cache bypass for generic questions
-    if cacheable:
-        cached_response = await rag_engine.check_semantic_cache(clean_prompt)
-        if cached_response:
-            if cb_state == "HALF_OPEN":
-                await circuit_breaker.record_success(AI_SERVICE)  # release the probe lease
-            return single_event_response(cached_response, cache_hit=True)
-
-    # 5. Persist the user turn
+    # 4. Persist the user turn
     if conversation is None:
         conversation = Conversation(user_id=current_user.id, title=clean_prompt[:40])
         db.add(conversation)
@@ -271,6 +262,7 @@ async def chat_completions(
         pubsub = queue_manager.redis.pubsub()
         tokens: list[str] = []
         ttft_ms: Optional[int] = None
+        cache_hit = False
         completed = False
         try:
             # Subscribe BEFORE publishing the task so no worker event can be missed.
@@ -297,6 +289,7 @@ async def chat_completions(
                     tokens.append(event["token"])
                     yield sse_event({"token": event["token"], "ttft_ms": ttft_ms, "trace_id": trace_id})
                 if event.get("is_final"):
+                    cache_hit = bool(event.get("cache_hit"))
                     completed = True
                     break
         except Exception as e:
@@ -322,8 +315,6 @@ async def chat_completions(
 
         await circuit_breaker.record_success(AI_SERVICE)
         final_answer = "".join(tokens).strip()
-        if cacheable and final_answer:
-            await rag_engine.store_semantic_cache(clean_prompt, final_answer)
 
         try:
             async with AsyncSessionLocal() as session:
@@ -343,111 +334,12 @@ async def chat_completions(
             "is_final": True,
             "ttft_ms": ttft_ms,
             "total_latency_ms": total_latency,
+            "cache_hit": cache_hit,
             "conversation_id": str(conversation_id),
             "trace_id": trace_id,
         })
 
     return StreamingResponse(sse_event_generator(), media_type="text/event-stream")
-
-# ==================== WebSocket text-query intent router ====================
-
-INJECTION_DB_KEYWORDS = ["delete the database", "drop table", "output the admin"]
-ESCALATION_KEYWORDS = ["stole my money", "chargeback", "lawyer", "bank dispute", "scam", "fraud", "unacceptable"]
-
-
-async def answer_text_query(raw_query: str, clean_query: str, user_id: Optional[uuid.UUID]) -> tuple[str, bool]:
-    """
-    Deterministic, priority-ordered intent router for WebSocket text queries.
-
-    Returns ``(response_text, cache_hit)``. Only the generic policy branch (last) reads
-    from or writes to the shared semantic cache; order lookups and tickets never do.
-    Raises on infrastructure errors so the caller can feed the circuit breaker.
-    """
-    prompt_lower = clean_query.lower()
-    order_match = ORDER_ID_PATTERN.search(clean_query)
-
-    # Priority 1: Security Injection (checked on the raw text: the sanitised copy has
-    # already had the injection phrase replaced by a placeholder)
-    if detect_prompt_injection(raw_query) or any(k in prompt_lower for k in INJECTION_DB_KEYWORDS):
-        return "🛡️ **Voxa Security Guardrail Activated:** System prompt injection and unauthorized database operations have been intercepted and neutralized. I am restricted to authentic customer service and order tracking.", False
-
-    # Priority 2: Chargeback / Anger / Supervisor Escalation (word boundaries so 'issue' does not match 'sue')
-    if any(k in prompt_lower for k in ESCALATION_KEYWORDS) or re.search(r'\b(sue|suing|lawsuit)\b', prompt_lower):
-        async with AsyncSessionLocal() as db_session:
-            tool_result = await escalate_to_human(clean_query, "urgent", user_id, db_session)
-        return f"🚨 **Urgent Priority Escalation:** I sincerely apologize for the distress. I have generated Urgent Support Ticket **#{tool_result['ticket_id']}** directly to our Senior Customer Resolution Lead. A supervisor is reviewing your billing history right now to ensure a complete resolution or instant refund.", False
-
-    # Priority 3: B2B Enterprise / Corporate Invoicing
-    if (any(k in prompt_lower for k in ["team of", "developers", "corporate", "bulk", "procurement", "enterprise"])
-            and any(k in prompt_lower for k in ["units", "buy", "order", "invoic", "purchase"])):
-        return "🏢 **Voxa Enterprise Desk:** For bulk orders (20+ units of Studio Headphones or Earbuds Pro):\n• **Volume Discount**: 20%–25% off.\n• **Payment Terms**: Net-30 enterprise invoicing & VAT/GST receipts.\n• **SLA**: 2-year enterprise warranty.\nI have registered Corporate Lead **#CORP-5091** for a formal quotation today.", False
-
-    # Priority 4: International Customs Duty & VAT Taxes (word boundary so 'private' does not match 'vat')
-    if (re.search(r'\bvat\b', prompt_lower) or any(k in prompt_lower for k in ["customs", "duty", "import tax"])
-            or (any(k in prompt_lower for k in ["uk", "canada", "india", "europe", "international"]) and "ship" in prompt_lower)):
-        return "🌍 **International Customs & Duty (DDP Delivery):** All Voxa international orders are shipped **Delivered Duty Paid (DDP)**. Local VAT and import duties are collected upfront during checkout with zero surprise doorstep fees. Air transit takes 7–14 business days with live GPS tracking.", False
-
-    # Priority 5: Bluetooth Multipoint Dual-Device Pairing
-    if ("multipoint" in prompt_lower
-            or ("simultaneously" in prompt_lower and ("connect" in prompt_lower or "pair" in prompt_lower))
-            or (("both" in prompt_lower or "two" in prompt_lower) and ("iphone" in prompt_lower or "pc" in prompt_lower or "devices" in prompt_lower))):
-        return "📶 **Bluetooth 5.3 Multipoint Dual-Device Pairing:** Yes! Voxa Earbuds Pro & Studio Headphones support Multipoint Connection to pair with 2 devices simultaneously (iPhone + PC). Connect to your phone first, put earbuds into pairing mode (hold case 3s), and select 'Voxa Audio' on your PC. Audio will switch automatically on incoming calls!", False
-
-    # Priority 6: Out-of-Warranty / Water Damage (word boundary so 'waterfall' does not match)
-    if re.search(r'\b(pool|submerged|water|dropped in)\b', prompt_lower) or ("14 months" in prompt_lower or "2 years" in prompt_lower):
-        return "💧 **Warranty & Out-of-Warranty Replacement:** The 1-Year Manufacturer Warranty covers craftsmanship up to 12 months. Prolonged pool submersion or usage beyond 12 months falls outside standard warranty, but we offer an **Out-of-Warranty Replacement at 35% OFF**! Share your purchase email to claim your voucher.", False
-
-    # Priority 7: Price Match Protection
-    if any(k in prompt_lower for k in ["price match", "sale today", "cheaper today", "price drop", "refund the difference"]):
-        return "🏷️ **14-Day Price Protection:** Yes! Under Voxa's Price Protection Policy, if an item you purchased goes on sale within 14 days of your order, you receive a full refund of the price difference. The difference will be credited to your card in 3–5 business days.", False
-
-    # Priority 8: Delivery Discrepancy (Delivered but Missing)
-    if "delivered" in prompt_lower and any(k in prompt_lower for k in ["not", "never", "haven", "didn", "missing", "where"]):
-        return "📦 **Package Marked Delivered But Not Received:** 1. Check with household members, reception, or neighbors. 2. Couriers occasionally scan packages up to 24 hours prior to physical delivery. 3. If not received after 24 hours, provide your Order ID (e.g. ORD-88412) and we will dispatch an immediate free replacement!", False
-
-    # Priority 9: Product Buying Advice
-    if (("headphone" in prompt_lower and ("earphone" in prompt_lower or "earbud" in prompt_lower))
-            or any(k in prompt_lower for k in ["which should i buy", "what should i order", "what should i buy", "which is better", "recommend", "buying advice", "compare"])):
-        return "🎧 **Voxa Product Buying Guide:**\n• **Wireless Earbuds Pro ($149)**: Best for workouts, running, pocket mobility (IPX7 water resistant, 32h battery).\n• **Smart Studio Headphones ($249)**: Best for deep immersion, 42dB Active Noise Cancellation, audiophile sound, and office focus.\n👉 Pick **Earbuds** for portability, or **Headphones** for superior ANC sound isolation!", False
-
-    # Priority 10: SQL Database Order Lookup & Refund (never cached: user-specific data)
-    if order_match:
-        order_id = order_match.group(0).upper()
-        async with AsyncSessionLocal() as db_session:
-            if "refund" in prompt_lower or "return" in prompt_lower:
-                tool_result = await check_refund_eligibility(order_id, db_session)
-                if tool_result.get("found"):
-                    status_str = "Eligible for full refund" if tool_result.get("eligible") else "Ineligible for refund"
-                    return f"📦 **Order {tool_result.get('order_id')}**: {status_str} ({tool_result.get('reason')}).", False
-                return tool_result.get("message", f"Order {order_id} not found."), False
-            tool_result = await lookup_order(order_id, db_session)
-            if tool_result.get("found"):
-                return f"📦 **Order {tool_result.get('order_id')} ({tool_result.get('item_name')})**: Currently **{tool_result.get('status')}**. Tracking number: `{tool_result.get('tracking_number')}`.", False
-            return tool_result.get("message", f"Order {order_id} not found."), False
-
-    # Priority 11: Human Agent Escalation
-    if re.search(r'\b(human|agent|manager|escalat\w*|representative|talk to someone)\b', prompt_lower):
-        async with AsyncSessionLocal() as db_session:
-            tool_result = await escalate_to_human(clean_query, "urgent", user_id, db_session)
-        return f"👤 **Live Human Specialist Transfer:** I have generated Priority Support Ticket **#{tool_result['ticket_id']}** in our system. A Tier-2 Senior Customer Support Specialist has received your inquiry and will connect with you within moments!", False
-
-    # Priority 11.5: Greetings
-    if re.search(r'\b(hi|hello|hey|greetings|who are you|what can you do|how are you|how are u)\b', prompt_lower):
-        return "👋 **Hello! I am Voxa 2.0**, your real-time voice and support assistant.\n\nI can help you with:\n• 📦 **Live Order Tracking** (e.g. `ORD-88412`)\n• 💸 **Refund Calculations & Returns**\n• 🎧 **Product Buying Advice** (Earbuds vs Headphones)\n• 🌍 **Customs & International Shipping**\n• 📶 **Bluetooth Multipoint Setup**\n• 🏢 **B2B Bulk Corporate Invoicing**\n\nHow can I help you today? (You can type or speak via your microphone!)", False
-
-    # Priority 12: General RAG Knowledge Base Search (the only branch that uses the semantic cache)
-    cached = await rag_engine.check_semantic_cache(clean_query)
-    if cached:
-        return cached, True
-
-    async with AsyncSessionLocal() as db_session:
-        rag_docs = await rag_engine.search_knowledge_base(clean_query, db_session, limit=2)
-    if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
-        response_text = f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
-    else:
-        response_text = "Thank you for contacting Voxa! All purchases include a 30-day money-back guarantee and 1-year warranty. Domestic shipping delivers in 3–5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
-    await rag_engine.store_semantic_cache(clean_query, response_text)
-    return response_text, False
 
 # ==================== Full-Duplex WebSocket Ingress ====================
 
@@ -666,7 +558,7 @@ async def api_lookup_order(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    return await lookup_order(order_id, db)
+    return await lookup_order(order_id, db, current_user.id)
 
 
 @app.get("/v1/tools/refund/{order_id}", tags=["Agent Tools"], dependencies=[Depends(rate_limit_dependency)])
@@ -675,7 +567,7 @@ async def api_check_refund(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    return await check_refund_eligibility(order_id, db)
+    return await check_refund_eligibility(order_id, db, current_user.id)
 
 
 @app.post("/v1/tools/escalate", tags=["Agent Tools"], dependencies=[Depends(rate_limit_dependency)])

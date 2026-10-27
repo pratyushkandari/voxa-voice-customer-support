@@ -1,5 +1,4 @@
 import asyncio
-import re
 from unittest.mock import AsyncMock
 from app.circuit_breaker import DistributedCircuitBreaker
 from workers.worker_supervisor import WorkerSupervisor
@@ -91,24 +90,30 @@ def test_worker_supervisor_xpending_keys_and_recovery():
 
     asyncio.run(_test())
 
-def test_word_boundaries_no_false_positives():
-    # Test 'sue' doesn't match 'tissue' or 'issue'
-    query_tissue = "Can you pass me a tissue for this issue?"
-    assert not re.search(r'\b(sue|suing|lawsuit)\b', query_tissue.lower())
-    
-    query_sue = "I will sue your company unless you refund me"
-    assert bool(re.search(r'\b(sue|suing|lawsuit)\b', query_sue.lower()))
+def test_router_keyword_word_boundaries(monkeypatch):
+    """Substring matching made 'tissue'/'issue' open legal escalations, 'private' trigger the
+    VAT answer and 'waterfall' trigger the water-damage answer."""
+    from app import agent_tools
 
-    # Test 'vat' doesn't match 'private' or 'elevation'
-    query_private = "Is this a private conversation about elevation?"
-    assert not re.search(r'\bvat\b', query_private.lower())
+    class DummySession:
+        async def __aenter__(self):
+            return object()
 
-    query_vat = "Do you provide VAT invoices for corporate orders?"
-    assert bool(re.search(r'\bvat\b', query_vat.lower()))
+        async def __aexit__(self, *exc):
+            return False
 
-    # Test 'water' doesn't match 'waterfall'
-    query_waterfall = "I like listening to the waterfall audio preset"
-    assert not re.search(r'\b(pool|submerged|water|dropped in)\b', query_waterfall.lower())
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "escalate_to_human", AsyncMock(return_value={"ticket_id": "T1"}))
+    monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
 
-    query_water = "I accidentally dropped the earbuds in the water pool"
-    assert bool(re.search(r'\b(pool|submerged|water|dropped in)\b', query_water.lower()))
+    def answer(text):
+        return asyncio.run(agent_tools.answer_text_query(text, text, None))[0]
+
+    assert answer("Can you pass me a tissue for this issue?") == "GENERIC"
+    assert "Urgent Priority Escalation" in answer("I will sue your company unless you refund me")
+
+    assert answer("Is this a private conversation about elevation?") == "GENERIC"
+    assert "Customs" in answer("Do I pay VAT on delivery?")
+
+    assert answer("I like listening to the waterfall audio preset") == "GENERIC"
+    assert "Warranty" in answer("I accidentally dropped the earbuds in the water pool")

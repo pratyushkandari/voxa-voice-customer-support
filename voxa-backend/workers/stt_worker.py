@@ -20,6 +20,7 @@ import redis.asyncio as aioredis
 from faster_whisper import WhisperModel
 
 from app.config import settings
+from app.guardrails import sanitize_user_input
 from app.queue_manager import keep_claimed, session_channel
 
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +89,9 @@ class STTWorker:
                 text_result = await asyncio.to_thread(self.transcribe_audio_bytes, audio_bytes)
             finally:
                 claim_task.cancel()
+            # Same ingress guardrails as typed text: PII is masked before the transcript is
+            # logged, queued in Redis or routed.
+            text_result = sanitize_user_input(text_result)
             stt_latency_ms = int((time.time() - start_time) * 1000)
             logger.info(f"🗣️ Transcribed [Session: {session_id}] ({stt_latency_ms}ms): '{text_result}'")
 
