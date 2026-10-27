@@ -8,9 +8,10 @@ Gateway-side producer for the Redis Streams worker pipeline.
 
 All stream fields are strings (Redis Streams store flat string maps).
 """
+import asyncio
 import logging
 import time
-from typing import Optional
+from typing import Iterable, Optional
 
 import redis.asyncio as aioredis
 from redis.exceptions import ResponseError
@@ -23,6 +24,30 @@ logger = logging.getLogger("voxa.queue")
 def session_channel(session_id: str) -> str:
     """Pub/Sub channel on which workers publish events for one client session."""
     return f"token:stream:{session_id}"
+
+
+# Must stay well below worker_supervisor's 15s idle threshold.
+CLAIM_REFRESH_SEC = 5.0
+
+
+async def keep_claimed(redis: aioredis.Redis, stream: str, group: str, consumer: str,
+                       msg_ids: Iterable[str], interval: Optional[float] = None) -> None:
+    """
+    Runs until cancelled, re-claiming ``msg_ids`` for ``consumer`` every few seconds.
+
+    The supervisor treats any pending entry idle for more than 15s as stranded by a
+    crashed worker and re-enqueues it. A healthy worker that is still busy (a long Whisper
+    transcription, or messages waiting in a micro-batch) would otherwise have its work
+    duplicated. ``XCLAIM ... JUSTID`` resets the idle time without bumping the delivery
+    counter. Errors are logged and retried on the next tick.
+    """
+    ids = list(msg_ids)
+    while True:
+        await asyncio.sleep(CLAIM_REFRESH_SEC if interval is None else interval)
+        try:
+            await redis.xclaim(stream, group, consumer, 0, ids, justid=True)
+        except Exception as e:
+            logger.warning(f"Could not refresh claim on {len(ids)} entries of {stream}: {e}")
 
 
 class QueueManager:

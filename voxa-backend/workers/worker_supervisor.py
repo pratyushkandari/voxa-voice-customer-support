@@ -43,9 +43,11 @@ class WorkerSupervisor:
                 if pending_count > 0:
                     logger.info(f"🔍 Found {pending_count} pending messages in {stream_name} ({group_name})")
                     
-                    # Fetch detailed pending entries
+                    # Only entries idle past the threshold (Redis >= 6.2 IDLE filter), so
+                    # busy-but-healthy entries at the head of the PEL cannot hide stranded ones.
                     pending_entries = await redis.xpending_range(
-                        stream_name, group_name, min="-", max="+", count=10
+                        stream_name, group_name, min="-", max="+", count=10,
+                        idle=self.min_idle_time_ms,
                     )
                     
                     for entry in pending_entries:

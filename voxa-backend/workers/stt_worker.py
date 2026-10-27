@@ -20,7 +20,7 @@ import redis.asyncio as aioredis
 from faster_whisper import WhisperModel
 
 from app.config import settings
-from app.queue_manager import session_channel
+from app.queue_manager import keep_claimed, session_channel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.stt_worker")
@@ -79,8 +79,15 @@ class STTWorker:
         start_time = time.time()
         try:
             audio_bytes = base64.b64decode(payload.get("audio_data", ""), validate=True)
-            # Inference is CPU-bound: run it off the event loop so heartbeats keep flowing.
-            text_result = await asyncio.to_thread(self.transcribe_audio_bytes, audio_bytes)
+            # Inference is CPU-bound: run it off the event loop so heartbeats keep flowing,
+            # and keep the entry claimed so the supervisor does not re-run a long transcription.
+            claim_task = asyncio.create_task(
+                keep_claimed(redis, self.stream_name, self.group_name, self.worker_id, [msg_id])
+            )
+            try:
+                text_result = await asyncio.to_thread(self.transcribe_audio_bytes, audio_bytes)
+            finally:
+                claim_task.cancel()
             stt_latency_ms = int((time.time() - start_time) * 1000)
             logger.info(f"🗣️ Transcribed [Session: {session_id}] ({stt_latency_ms}ms): '{text_result}'")
 
