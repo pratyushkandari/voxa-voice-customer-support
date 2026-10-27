@@ -2007,6 +2007,30 @@
             <p class="small">Generated 2026-10-23 from the working tree at commit <code>94b2579</code> (branch
               <code>main</code>). Line numbers refer to that version of each file.
             </p>
+            <div class="callout warn">
+              <span class="ct">Changed since this snapshot (repair audit, 2026-10-27)</span>
+              <p>The code has moved on from <code>94b2579</code>; where this handbook disagrees with the points below,
+                the points below (and the README) are current. Line references may have shifted.</p>
+              <ul>
+                <li>The V1 prototype (<code>backend.py</code>, <code>frontend.py</code>, <code>model.ipynb</code>, root
+                  <code>requirements.txt</code>) was deleted; it lives on only in git history.</li>
+                <li>The intent router <code>answer_text_query</code> moved from <code>main.py</code> to
+                  <code>app/agent_tools.py</code>, and the LLM worker now uses it too, so REST, voice and console
+                  give identical answers. <code>detect_tool_intent</code>, <code>execute_tool_call</code>,
+                  <code>format_tool_response</code> and <code>sanitize_and_isolate_prompt</code> were removed.</li>
+                <li>Orders that belong to a user are visible only to that user; seeded demo orders (no owner) stay
+                  public.</li>
+                <li>If Redis is down, the circuit breaker and rate limiter fail open (logged), so chat keeps
+                  answering. Login and sign-up are rate-limited. WebSocket tokens are redacted from server logs.</li>
+                <li><code>LLM_MODEL_NAME</code> (Qwen), <code>APP_NAME</code> and <code>ENVIRONMENT</code> were removed;
+                  there is no generative model.</li>
+                <li>Docker Compose binds PostgreSQL, Redis, Prometheus and Grafana to <code>127.0.0.1</code> and no
+                  longer publishes port 8000; the gateway is on 8088 only.</li>
+                <li>Workers keep in-flight stream entries claimed so the supervisor does not duplicate long tasks;
+                  the STT worker masks PII in transcripts.</li>
+                <li>Test counts in this handbook predate the new regression tests.</li>
+              </ul>
+            </div>
             <h1 id="h-top">Voxa: Real-Time Voice &amp; Text Customer-Support Platform</h1>
             <p class="lead">This handbook teaches the Voxa project from zero: what it does, how each file works, how it
               was deployed on Azure, where it is weak, and how to explain and defend it in an SDE-1 interview.</p>

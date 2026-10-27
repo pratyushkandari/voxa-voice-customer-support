@@ -9,7 +9,7 @@ graph TD
     Gateway["Ingress Gateway (FastAPI / WebSockets / SSE)"]
     RedisStreams["Redis 7 (Streams, Pub/Sub, cache, rate limits, breaker state)"]
     STT["STT Worker (Faster-Whisper INT8)"]
-    LLM["LLM Worker (tool routing + pgvector RAG)"]
+    LLM["LLM Worker (shared intent router + pgvector RAG)"]
     TTS["TTS Worker (edge-tts)"]
     SUP["Worker Supervisor (PEL reclaim / DLQ)"]
     PG[("PostgreSQL 16 + pgvector")]
@@ -61,8 +61,10 @@ All frames are JSON **text** frames (binary frames are rejected with an `error` 
    - `audio_response`: base64 MP3 from the TTS worker (voice path only).
    - `error`: validation failures, rate limiting, empty transcripts, dead-lettered tasks.
 
-### 2.2 Text-Query Routing (gateway, in-process)
-Text queries are answered without a worker hop by a priority-ordered router: injection guardrail → chargeback/legal escalation (creates a ticket) → B2B, customs, multipoint, water-damage, price-match, delivery and buying-advice policies → order lookup / refund eligibility (PostgreSQL) → human escalation (ticket) → greeting → semantic cache → pgvector knowledge-base answer. Only the final generic branch reads or writes the semantic cache.
+### 2.2 Text-Query Routing (one router for every channel)
+`answer_text_query` in `app/agent_tools.py` is a priority-ordered router: injection guardrail → chargeback/legal escalation (creates a ticket) → B2B, customs, multipoint, water-damage, price-match, delivery and buying-advice policies → order lookup / refund eligibility (PostgreSQL) → human escalation (ticket) → greeting → semantic cache → pgvector knowledge-base answer. Only the final generic branch reads or writes the semantic cache.
+
+The gateway runs it in-process for WebSocket `text_query` frames (no worker hop). The LLM worker runs the same function for REST SSE prompts and voice transcripts, so every channel gives the same answer. Orders that belong to a user are visible only to that user; seeded demo orders have no owner and are visible to everyone.
 
 ### 2.3 Client-Side Audio
 The bundled console captures speech with the browser's Web Speech API and sends the transcript as a `text_query`; a Web Audio `AnalyserNode` drives the voice-orb animation. The server-side `audio_chunk` → Faster-Whisper path is available to API clients.
@@ -83,7 +85,7 @@ Every `XADD` uses `MAXLEN ~ 10000` so acknowledged history does not grow without
 ### 3.2 At-Least-Once Delivery & Failure Recovery
 1. **Explicit acknowledgment:** workers `XACK` only after a task is fully handled (answered, re-enqueued or dead-lettered).
 2. **Own-PEL replay:** on every loop a worker first re-reads its own un-acknowledged entries (`XREADGROUP ... 0`) before taking new ones. Consumer names are random per process, so entries left behind by a crashed process are recovered by the supervisor (next step).
-3. **Crash recovery:** `worker_supervisor` polls `XPENDING` every 5s; entries idle for more than 15,000ms belong to a dead consumer and are `XCLAIM`ed and re-appended with `retry_count` incremented. Because a re-appended entry starts a fresh delivery counter, the attempt count travels in the payload.
+3. **Crash recovery:** `worker_supervisor` polls `XPENDING … IDLE 15000` every 5s; entries idle for more than 15,000ms belong to a dead consumer and are `XCLAIM`ed and re-appended with `retry_count` incremented. Because a re-appended entry starts a fresh delivery counter, the attempt count travels in the payload. A live worker re-claims its in-flight entries (`XCLAIM … JUSTID`, every 5s) while it transcribes or works through a micro-batch, so slow-but-healthy work is never mistaken for a crash and duplicated.
 4. **Dead-Letter Queue:** a task that has used 3 attempts is written to `stream:dead:letter:queue` with its error/reason and origin stream, and the client is sent an `error` frame.
 
 ---
@@ -129,6 +131,7 @@ stateDiagram-v2
 - **Closed:** normal traffic; successes and failures are both counted.
 - **Open:** immediate fallback message; no downstream calls.
 - **Half-Open:** exactly one canary request holds a 10s `SET NX EX` probe lease; concurrent requests get the fallback.
+- **Redis unreachable:** the breaker cannot read or record state, so it fails open (reported state `UNKNOWN`) and logs a warning; the rate limiter does the same. Answers that do not need Redis keep flowing.
 
 ---
 

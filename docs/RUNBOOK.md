@@ -63,6 +63,7 @@ This runbook defines triage workflows and mitigation steps for the Voxa platform
    ```
 **Mitigation:**
 1. Fix the failing dependency (restart the LLM worker, restore PostgreSQL). The breaker moves to `HALF_OPEN` 15s after tripping and closes automatically after one successful canary request.
+   If final frames report `"circuit_breaker": "UNKNOWN"`, Redis itself is unreachable: the breaker and rate limiter are failing open (gateway logs show `Circuit breaker state unavailable` / `Rate limiter unavailable`), so restore Redis first.
 2. To force a probe immediately:
    ```bash
    redis-cli SET circuit:ai_worker:state HALF_OPEN
@@ -91,7 +92,13 @@ This runbook defines triage workflows and mitigation steps for the Voxa platform
 
 ## 3. Disaster Recovery & Deployment
 - **Database backup:** schedule `pg_dump` of `voxa_db` (or volume snapshots of `postgres_data`); Redis holds only transient state (streams, cache, rate limits) with AOF enabled.
-- **Secrets:** set `JWT_SECRET_KEY` (shared by all gateway replicas) and `SEED_ADMIN_PASSWORD` before exposing the stack; in Kubernetes create `voxa-secrets` out-of-band (see `k8s/configmap-secrets.yaml`).
+- **Secrets:** set `JWT_SECRET_KEY` (shared by all gateway replicas) and `SEED_ADMIN_PASSWORD` before exposing the stack; in Kubernetes create `voxa-secrets` out-of-band (see `k8s/configmap-secrets.yaml`). Rotating `JWT_SECRET_KEY` invalidates every issued token.
+- **Admin password:** `SEED_ADMIN_PASSWORD` is used only when `admin@voxa.ai` is first created. To change it on a running stack:
+  ```bash
+  HASH=$(docker exec voxa-gateway python -c "from app.auth import get_password_hash; print(get_password_hash('<new-password>'))")
+  docker exec -i voxa-postgres psql -U postgres -d voxa_db -c "UPDATE users SET hashed_password='$HASH' WHERE email='admin@voxa.ai';"
+  ```
+- **Network exposure:** Compose publishes only the frontend (3000) and gateway (8088). PostgreSQL, Redis, Prometheus and Grafana are bound to `127.0.0.1`; on a cloud VM reach them with an SSH tunnel and keep the VM's firewall closed for those ports.
 - **Rolling update (Kubernetes):**
   ```bash
   kubectl apply -f voxa-backend/k8s/
