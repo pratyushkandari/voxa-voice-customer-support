@@ -333,6 +333,7 @@ Raise `RATE_LIMIT_REQUESTS_PER_MINUTE` on the gateway under test first: all virt
 ## ⚠️ Known Limitations
 * **No generative LLM:** every answer comes from the deterministic intent router (tools, canned policy texts, pgvector retrieval). The "LLM worker" name reflects its place in the pipeline, not a language model.
 * **Web console voice:** microphone input uses the browser's Web Speech API (Chrome, Edge, Safari); the console does not yet send `audio_chunk` frames or play `audio_response` audio from the TTS worker.
+* **Spoken order IDs:** the router accepts `ORD-88412`, `ORD 88412` and `ORD88412`, but Whisper occasionally mishears "ORD" (e.g. as "or D"), in which case the voice answer falls back to the order-tracking policy text.
 * **Schema changes:** tables are created with `create_all` on start-up; there are no migrations, so changing a model requires migrating existing databases by hand.
 * **Observability:** Grafana ships without dashboards; circuit-breaker state lives in Redis (`circuit:ai_worker:state`) rather than a Prometheus metric.
 * **Kubernetes:** the `k8s/` manifests are illustrative and have not been applied to a cluster; they expect pre-built `voxa/gateway` and `voxa/worker` images and a `voxa-secrets` Secret created out-of-band.

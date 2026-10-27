@@ -2028,6 +2028,9 @@
                   longer publishes port 8000; the gateway is on 8088 only.</li>
                 <li>Workers keep in-flight stream entries claimed so the supervisor does not duplicate long tasks;
                   the STT worker masks PII in transcripts.</li>
+                <li>The LLM worker loads the embedding model at start-up (its first REST/voice answer used to take
+                  about 20s and time out), and order IDs are recognised without the hyphen (<code>ORD88412</code>),
+                  which is how Whisper transcribes them.</li>
                 <li>Test counts in this handbook predate the new regression tests.</li>
               </ul>
             </div>
