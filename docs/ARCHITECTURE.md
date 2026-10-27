@@ -1,145 +1,184 @@
-# System Architecture & Technical Specifications
+# Architecture
 
-## 1. Executive Summary & Topology
-Voxa is an event-driven, distributed customer-support platform. Client ingestion, speech-to-text (STT), answer generation (tool routing + retrieval-augmented answers), and text-to-speech (TTS) are decoupled into asynchronous services orchestrated over Redis Streams consumer groups, with per-session Redis Pub/Sub channels carrying results back to whichever gateway replica owns the client connection. The latency target is a sub-180ms time-to-first-token (TTFT); every response reports its measured TTFT.
+This document describes how Voxa's services fit together, the wire protocol between the console and the gateway, and how failures are handled. For setup and the API surface, see the [README](../README.md).
+
+## Overview
+
+Voxa is split into a gateway and a set of workers that talk through Redis:
+
+- The **gateway** (FastAPI) owns client connections: a WebSocket for the web console and a REST/SSE endpoint for API clients. It answers typed questions itself.
+- **Workers** handle the slow or bursty work: speech-to-text, answering REST and voice prompts, and text-to-speech. Each worker type is a Redis Streams consumer group, so it can be scaled on its own.
+- Results flow back over a per-session Redis Pub/Sub channel, which means any gateway replica can deliver a worker's answer to the right client.
+- **PostgreSQL with pgvector** stores users, orders, conversations, tickets and the knowledge base, including its embeddings.
 
 ```mermaid
 graph TD
-    Client["Client (Next.js 14 console / API clients)"]
-    Gateway["Ingress Gateway (FastAPI / WebSockets / SSE)"]
-    RedisStreams["Redis 7 (Streams, Pub/Sub, cache, rate limits, breaker state)"]
-    STT["STT Worker (Faster-Whisper INT8)"]
-    LLM["LLM Worker (shared intent router + pgvector RAG)"]
-    TTS["TTS Worker (edge-tts)"]
-    SUP["Worker Supervisor (PEL reclaim / DLQ)"]
+    Client["Next.js console / API clients"]
+    Gateway["Gateway (FastAPI: WebSocket + SSE)"]
+    Redis["Redis 7 (streams, pub/sub, cache, rate limits, breaker state)"]
+    STT["STT worker (Faster-Whisper, int8)"]
+    LLM["LLM worker (intent router + pgvector RAG)"]
+    TTS["TTS worker (edge-tts)"]
+    SUP["Worker supervisor (PEL reclaim, DLQ)"]
     PG[("PostgreSQL 16 + pgvector")]
-    Prometheus["Prometheus"]
+    Prom["Prometheus"]
 
-    Client <-->|"Full-duplex WS (JSON frames)"| Gateway
-    Gateway -->|"stream:audio:transcribe"| RedisStreams
-    RedisStreams -->|"Consumer group: stt_group"| STT
-    STT -->|"stream:llm:inference"| RedisStreams
-    Gateway -->|"stream:llm:inference (REST SSE)"| RedisStreams
-    RedisStreams -->|"Consumer group: llm_group"| LLM
-    LLM <-->|"Tools + HNSW cosine <=> search"| PG
-    LLM -->|"stream:tts:synthesize"| RedisStreams
-    RedisStreams -->|"Consumer group: tts_group"| TTS
-    LLM -->|"Pub/Sub token:stream:{session_id}"| RedisStreams
-    TTS -->|"Pub/Sub token:stream:{session_id}"| RedisStreams
-    RedisStreams -->|"Token & audio events"| Gateway
-    SUP -.->|"XPENDING / XCLAIM / DLQ"| RedisStreams
-    Gateway <-->|"Text-query router: orders, tickets, KB"| PG
-    Gateway -.->|"/metrics"| Prometheus
+    Client <-->|"WebSocket (JSON frames)"| Gateway
+    Gateway -->|"stream:audio:transcribe"| Redis
+    Redis -->|"stt_group"| STT
+    STT -->|"stream:llm:inference"| Redis
+    Gateway -->|"stream:llm:inference (REST SSE)"| Redis
+    Redis -->|"llm_group"| LLM
+    LLM <-->|"tools + HNSW search"| PG
+    LLM -->|"stream:tts:synthesize"| Redis
+    Redis -->|"tts_group"| TTS
+    LLM -->|"token:stream:{session_id}"| Redis
+    TTS -->|"token:stream:{session_id}"| Redis
+    Redis -->|"token and audio events"| Gateway
+    SUP -.->|"XPENDING / XCLAIM / DLQ"| Redis
+    Gateway <-->|"orders, tickets, knowledge base"| PG
+    Gateway -.->|"/metrics"| Prom
 ```
 
----
+The latency target is a time-to-first-token (TTFT) under 180 ms. Every answer reports its measured `ttft_ms`; no benchmark results are checked in.
 
-## 2. Ingress & Bi-Directional Streaming Protocol
-The gateway accepts persistent, full-duplex WebSocket connections on `/v1/ws/stream?token=<JWT>`. The token is optional; only authenticated sessions are persisted (a conversation belongs to a user) and attributed on escalation tickets.
+## WebSocket protocol
 
-### 2.1 Frame Format Specifications
-All frames are JSON **text** frames (binary frames are rejected with an `error` frame).
+Clients connect to `/v1/ws/stream?token=<JWT>`. The token is optional. Anonymous sessions work, but only authenticated sessions are saved (a conversation belongs to a user) and linked to the tickets they create. The token travels in the query string because browsers can't set headers on a WebSocket handshake; the gateway hides it in its access logs.
 
-1. **Upstream (Client ➔ Gateway):**
-   - `{"type": "text_query", "text": "...", "trace_id": "<optional>"}` (max 2,000 characters)
-   - `{"type": "audio_chunk", "audio_data": "<base64 audio>", "trace_id": "<optional>"}` (one utterance, max 4 MB base64; any FFmpeg-decodable container such as WAV or WebM/Opus)
-2. **Downstream (Gateway ➔ Client):**
-   - `token_chunk`: streamed answer words; the last frame has `is_final: true` and carries the turn's telemetry:
-     ```json
-     {
-       "type": "token_chunk",
-       "token": "",
-       "is_final": true,
-       "ttft_ms": 6,
-       "total_latency_ms": 412,
-       "cache_hit": false,
-       "circuit_breaker": "CLOSED",
-       "trace_id": "b1a47df1-0c5a-4e89-b7b5-fb358a9ce71b"
-     }
-     ```
-   - `ack`: an `audio_chunk` was queued for transcription.
-   - `audio_response`: base64 MP3 from the TTS worker (voice path only).
-   - `error`: validation failures, rate limiting, empty transcripts, dead-lettered tasks.
+All frames are JSON text frames. A binary frame gets an `error` reply.
 
-### 2.2 Text-Query Routing (one router for every channel)
-`answer_text_query` in `app/agent_tools.py` is a priority-ordered router: injection guardrail → chargeback/legal escalation (creates a ticket) → B2B, customs, multipoint, water-damage, price-match, delivery and buying-advice policies → order lookup / refund eligibility (PostgreSQL) → human escalation (ticket) → greeting → semantic cache → pgvector knowledge-base answer. Only the final generic branch reads or writes the semantic cache.
+**Client → gateway**
 
-The gateway runs it in-process for WebSocket `text_query` frames (no worker hop). The LLM worker runs the same function for REST SSE prompts and voice transcripts, so every channel gives the same answer. Orders that belong to a user are visible only to that user; seeded demo orders have no owner and are visible to everyone.
+- `{"type": "text_query", "text": "...", "trace_id": "<optional>"}`: at most 2,000 characters.
+- `{"type": "audio_chunk", "audio_data": "<base64>", "trace_id": "<optional>"}`: one utterance, at most 4 MB of base64. Any container FFmpeg can decode works (WAV, WebM/Opus, OGG).
 
-### 2.3 Client-Side Audio
-The bundled console captures speech with the browser's Web Speech API and sends the transcript as a `text_query`; a Web Audio `AnalyserNode` drives the voice-orb animation. The server-side `audio_chunk` → Faster-Whisper path is available to API clients.
+**Gateway → client**
 
----
+- `token_chunk`: the answer, streamed a word at a time. The last frame has `is_final: true` and carries that turn's measurements:
 
-## 3. Asynchronous Worker Cluster & Stream Semantics
+  ```json
+  {
+    "type": "token_chunk",
+    "token": "",
+    "is_final": true,
+    "ttft_ms": 6,
+    "total_latency_ms": 412,
+    "cache_hit": false,
+    "circuit_breaker": "CLOSED",
+    "trace_id": "b1a47df1-0c5a-4e89-b7b5-fb358a9ce71b"
+  }
+  ```
 
-### 3.1 Redis Streams & Consumer Groups
-Each processing tier is an independently scalable consumer group (created idempotently by the gateway on startup):
-- `stream:audio:transcribe`: consumed by `stt_group`.
-- `stream:llm:inference`: consumed by `llm_group` (the LLM worker reads up to 8 entries per batch, blocking 15ms).
-- `stream:tts:synthesize`: consumed by `tts_group`.
-- `stream:dead:letter:queue`: quarantined tasks for inspection.
+- `ack`: an `audio_chunk` was queued for transcription.
+- `audio_response`: base64 MP3 from the TTS worker (voice requests only).
+- `error`: a validation failure, a rate limit, an empty transcript or a dead-lettered task.
 
-Every `XADD` uses `MAXLEN ~ 10000` so acknowledged history does not grow without bound.
+## Answer routing
 
-### 3.2 At-Least-Once Delivery & Failure Recovery
-1. **Explicit acknowledgment:** workers `XACK` only after a task is fully handled (answered, re-enqueued or dead-lettered).
-2. **Own-PEL replay:** on every loop a worker first re-reads its own un-acknowledged entries (`XREADGROUP ... 0`) before taking new ones. Consumer names are random per process, so entries left behind by a crashed process are recovered by the supervisor (next step).
-3. **Crash recovery:** `worker_supervisor` polls `XPENDING … IDLE 15000` every 5s; entries idle for more than 15,000ms belong to a dead consumer and are `XCLAIM`ed and re-appended with `retry_count` incremented. Because a re-appended entry starts a fresh delivery counter, the attempt count travels in the payload. A live worker re-claims its in-flight entries (`XCLAIM … JUSTID`, every 5s) while it transcribes or works through a micro-batch, so slow-but-healthy work is never mistaken for a crash and duplicated.
-4. **Dead-Letter Queue:** a task that has used 3 attempts is written to `stream:dead:letter:queue` with its error/reason and origin stream, and the client is sent an `error` frame.
+Every channel answers with one function, `answer_text_query` in `app/agent_tools.py`. It checks rules in priority order and stops at the first match:
 
----
+1. Prompt-injection guardrail.
+2. Chargeback or legal threats: opens an urgent ticket.
+3. Canned policy answers (bulk orders, customs/VAT, Bluetooth multipoint, water damage, price match, missing delivery, buying advice).
+4. Order lookup or refund eligibility from PostgreSQL. `ORD-88412`, `ORD 88412` and `ORD88412` are all accepted, because speech-to-text drops the hyphen.
+5. Request for a human: opens a ticket.
+6. Greeting.
+7. Everything else: semantic cache, then pgvector knowledge-base search.
 
-## 4. Two-Tier RAG Architecture & Vector Caching
+Only step 7 reads or writes the semantic cache, because order data and tickets are user-specific.
+
+The gateway runs the router in-process for WebSocket `text_query` frames, so there's no worker hop. The LLM worker runs the same function for REST prompts and voice transcripts.
+
+An order that belongs to a user is visible only to that user. The seeded demo orders have no owner and are visible to everyone. Someone else's order gets the same reply as a missing one, so order IDs can't be probed.
+
+There is no generative model. "LLM worker" names the pipeline stage, not a language model.
+
+The web console captures speech with the browser's Web Speech API and sends the transcript as a `text_query`. The server-side `audio_chunk` → Whisper path is for API clients.
+
+## Workers and delivery guarantees
+
+The gateway creates these consumer groups on start-up (idempotently):
+
+| Stream | Group | Consumer |
+| --- | --- | --- |
+| `stream:audio:transcribe` | `stt_group` | STT worker |
+| `stream:llm:inference` | `llm_group` | LLM worker (up to 8 entries per read) |
+| `stream:tts:synthesize` | `tts_group` | TTS worker |
+| `stream:dead:letter:queue` | `dlq_group` | inspected manually |
+
+Every `XADD` uses `MAXLEN ~ 10000`, so acknowledged entries don't accumulate.
+
+Delivery is at-least-once:
+
+- **Acknowledge last:** a worker `XACK`s an entry only after it has answered, re-queued or dead-lettered it.
+- **Own pending entries first:** on each loop a worker re-reads its own unacknowledged entries (`XREADGROUP ... 0`) before taking new ones. Consumer names are random per process, so entries left by a crashed process are handled by the supervisor instead.
+- **Crash recovery:** every 5 s the supervisor asks for entries idle longer than 15 s (`XPENDING ... IDLE 15000`), claims them and re-queues them with `retry_count` incremented. The attempt count travels in the payload, because a re-queued entry starts a fresh delivery counter.
+- **Long tasks:** while a worker is busy (a long transcription, or entries waiting in its batch), it re-claims them every 5 s (`XCLAIM ... JUSTID`). Healthy work is therefore never mistaken for a crash and run twice.
+- **Dead-letter queue:** after 3 attempts an entry goes to `stream:dead:letter:queue` with the error and its origin stream, and the client gets an `error` frame.
+
+The LLM worker loads the embedding model before it starts consuming. Loading it lazily on the first prompt took about 20 s, as long as the gateway waits for an answer.
+
+## Retrieval and the semantic cache
 
 ```
-Generic user question (after PII masking)
-    │
-    ▼
-[ Tier 1: Redis Semantic Cache ] ──── cosine ≥ 0.92 ───► cached answer (cache_hit = true)
-    │
-    │ Cache miss
-    ▼
-[ Tier 2: PostgreSQL pgvector ] ───► HNSW cosine search (<=>) ───► best passage if similarity > 0.35,
-                                                                  else a generic policy answer
+generic question (PII already masked)
+  │
+  ├─ Redis semantic cache: cosine ≥ 0.92 ──► cached answer (cache_hit = true)
+  │
+  └─ miss ─► pgvector HNSW search (<=>) ──► best passage if similarity > 0.35,
+                                             otherwise a general policy answer
 ```
 
-### 4.1 Tier 1: Semantic Vector Cache
-- **Embedding model:** `all-MiniLM-L6-v2`, 384-dimensional, L2-normalised, so cosine similarity is a dot product. Inference runs in a worker thread to keep the event loop free.
-- **Match criteria:** $$\text{Cosine Similarity}(u, v) = u \cdot v \ge 0.92$$
-- **Lookup cost:** at most 50 keys via incremental `SCAN` plus one `MGET`; entries expire after 1 hour.
-- **Scope:** only user-independent policy answers are cached; order data and tickets never are.
+**Embeddings**
 
-### 4.2 Tier 2: Knowledge Retrieval
-- Support policies are stored with embeddings in `knowledge_base` (seeded on startup).
-- Index: `CREATE INDEX ... USING hnsw (embedding vector_cosine_ops)` with pgvector defaults (`m = 16`, `ef_construction = 64`).
+- `all-MiniLM-L6-v2`, 384 dimensions.
+- L2-normalised, so cosine similarity is a dot product.
+- Encoding runs in a thread so it never blocks the event loop.
 
----
+**Cache**
 
-## 5. Resilience & Circuit Breaker State Machine
-Failures of the answering path (router exceptions on the WebSocket path, LLM-worker timeouts on the SSE path) feed one Redis-backed breaker (`circuit:ai_worker:*`) shared by all gateway replicas:
+- A lookup scans at most 50 keys with `SCAN` and fetches them with one `MGET`.
+- Entries expire after an hour.
+- Only answers that don't depend on the user are cached.
+
+**Knowledge base**
+
+- The `knowledge_base` table is seeded on start-up.
+- It's indexed with `USING hnsw (embedding vector_cosine_ops)` (pgvector defaults: `m = 16`, `ef_construction = 64`).
+
+## Circuit breaker
+
+Failures on the answering path feed one Redis-backed breaker (`circuit:ai_worker:*`) shared by every gateway replica. On the WebSocket path that means router exceptions; on the SSE path, LLM-worker timeouts.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Closed
-    Closed --> Open: failures/total ≥ 50% with ≥ 4 calls (10s window)
-    Open --> HalfOpen: 15s cooldown expires
-    HalfOpen --> Closed: canary request succeeds
-    HalfOpen --> Open: canary request fails
+    Closed --> Open: failures/total ≥ 50% with ≥ 4 calls in 10 s
+    Open --> HalfOpen: 15 s cooldown
+    HalfOpen --> Closed: probe succeeds
+    HalfOpen --> Open: probe fails
 ```
 
-- **Closed:** normal traffic; successes and failures are both counted.
-- **Open:** immediate fallback message; no downstream calls.
-- **Half-Open:** exactly one canary request holds a 10s `SET NX EX` probe lease; concurrent requests get the fallback.
-- **Redis unreachable:** the breaker cannot read or record state, so it fails open (reported state `UNKNOWN`) and logs a warning; the rate limiter does the same. Answers that do not need Redis keep flowing.
+- **Closed:** traffic flows, and successes and failures are both counted.
+- **Open:** callers get a fallback message immediately.
+- **Half-open:** one probe request holds a 10 s `SET NX EX` lease; everyone else gets the fallback.
+- **Redis unreachable:** the breaker can't read or write its state, so it lets requests through (state `UNKNOWN`) and logs a warning. The rate limiter does the same, so answers that don't need Redis keep working.
 
----
+## Metrics
 
-## 6. Telemetry & Observability Matrix
-The gateway exposes Prometheus metrics on `/metrics` (container port 8000, published as 8088):
-- `http_request_duration_seconds{method,endpoint,status_code}`: histogram labelled by **route template** (bounded cardinality).
-- `llm_time_to_first_token_seconds`: TTFT of SSE responses relayed from the LLM worker.
-- `websocket_active_connections`: open WebSockets on this process.
-- `semantic_cache_hit_total` / `semantic_cache_miss_total`: per-process cache counters (fleet-wide totals are also kept in Redis keys `metric:semantic_cache_*` for the admin API).
+The gateway serves Prometheus metrics on `/metrics`:
 
-Metrics are process-local, so the gateway runs one uvicorn worker per container and scales by replicas. `GET /v1/admin/metrics` (admin only) adds database- and Redis-derived values: average TTFT, p95 latency, cache hit ratio, live worker heartbeats (`worker:heartbeat:*`, 10s TTL) and queue backlog (pending + lag per consumer group).
+- `http_request_duration_seconds{method,endpoint,status_code}`: labelled by route template, not raw path, to keep cardinality bounded.
+- `llm_time_to_first_token_seconds`: TTFT of SSE answers relayed from the LLM worker.
+- `websocket_active_connections`: open sockets on this process.
+- `semantic_cache_hit_total`, `semantic_cache_miss_total`: per-process counters. Fleet-wide totals are kept in Redis (`metric:semantic_cache_*`) for the admin API.
+
+Metrics are process-local, so the gateway runs one uvicorn worker per container and scales by adding replicas.
+
+`GET /v1/admin/metrics` (admin only) adds values computed from the database and Redis:
+
+- average TTFT and p95 latency
+- cache hit ratio
+- live workers (`worker:heartbeat:*`, 10 s TTL)
+- queue backlog (pending plus lag per consumer group)
