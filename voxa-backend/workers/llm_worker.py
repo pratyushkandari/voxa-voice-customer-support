@@ -21,6 +21,7 @@ import redis.asyncio as aioredis
 from app.agent_tools import answer_text_query
 from app.config import settings
 from app.queue_manager import keep_claimed, session_channel
+from app.rag_engine import rag_engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.llm_worker")
@@ -144,6 +145,14 @@ class LLMWorker:
             await redis.xgroup_create(self.stream_name, self.group_name, id="0", mkstream=True)
         except Exception:
             pass  # BUSYGROUP: group already exists
+
+        # Load the embedding model before taking work, as the gateway does at start-up:
+        # loading it lazily on the first generic prompt took ~20s, as long as the gateway
+        # waits for an answer, so that first REST/voice question fell back to an error.
+        try:
+            await rag_engine.generate_embedding_async("warm-up")
+        except Exception as e:
+            logger.warning(f"Embedding model warm-up failed: {e}")
 
         # Keep a reference: asyncio only holds weak references to running tasks.
         self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))
