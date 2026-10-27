@@ -69,10 +69,12 @@ from app.telemetry import (
     TelemetryMiddleware,
     gauge_value,
     get_prometheus_metrics,
+    install_log_redaction,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.gateway")
+install_log_redaction()
 
 AI_SERVICE = "ai_worker"  # circuit-breaker key shared by every inference path
 
@@ -149,7 +151,10 @@ async def prometheus_metrics():
 # ==================== Authentication Endpoints ====================
 
 
-@app.post("/v1/auth/signup", response_model=TokenResponse, tags=["Authentication"])
+# Credential endpoints are rate-limited per client IP so passwords (including the seeded
+# admin's) cannot be brute-forced.
+@app.post("/v1/auth/signup", response_model=TokenResponse, tags=["Authentication"],
+          dependencies=[Depends(rate_limit_dependency)])
 async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     stmt = select(User).where(User.email == user_in.email)
     existing_user = (await db.execute(stmt)).scalar_one_or_none()
@@ -169,7 +174,8 @@ async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer", "user": new_user}
 
 
-@app.post("/v1/auth/login", response_model=TokenResponse, tags=["Authentication"])
+@app.post("/v1/auth/login", response_model=TokenResponse, tags=["Authentication"],
+          dependencies=[Depends(rate_limit_dependency)])
 async def login(user_in: UserLogin, db: AsyncSession = Depends(get_db)):
     stmt = select(User).where(User.email == user_in.email)
     user = (await db.execute(stmt)).scalar_one_or_none()
