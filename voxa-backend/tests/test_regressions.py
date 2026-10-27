@@ -18,7 +18,7 @@ from app import agent_tools
 from app.auth import create_access_token, decode_access_token, user_id_from_token
 from app.circuit_breaker import DistributedCircuitBreaker
 from app.config import Settings, settings
-from app.guardrails import detect_prompt_injection, sanitize_and_isolate_prompt, sanitize_user_input
+from app.guardrails import detect_prompt_injection, sanitize_user_input
 from workers.llm_worker import LLMWorker
 from workers.stt_worker import STTWorker
 from workers.worker_supervisor import WorkerSupervisor
@@ -342,7 +342,6 @@ def test_sanitized_text_has_no_wrapper_but_masks_pii():
     """Embedding the '### USER_INPUT ###' wrapper skewed semantic-cache similarity."""
     cleaned = sanitize_user_input("My card is 4532 8912 3456 7890")
     assert "###" not in cleaned and "4532" not in cleaned
-    assert sanitize_and_isolate_prompt("hello").startswith("### USER_INPUT ###")
 
 
 class DummySession:
