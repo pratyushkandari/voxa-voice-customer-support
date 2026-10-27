@@ -221,6 +221,36 @@ def test_llm_worker_keeps_queued_batch_entries_claimed(monkeypatch):
     asyncio.run(_test())
 
 
+def test_llm_worker_loads_embedding_model_before_taking_work(monkeypatch):
+    """The model loaded lazily on the first generic prompt (~20s), so that REST answer timed out."""
+    import workers.llm_worker as llm_module
+
+    calls = []
+    redis = AsyncMock()
+
+    async def first_read(**kwargs):
+        calls.append("xreadgroup")
+        raise asyncio.CancelledError  # stop the endless consume loop after its first read
+
+    async def warm_up(text):
+        calls.append("warm-up")
+
+    redis.xreadgroup = first_read
+    monkeypatch.setattr(llm_module.aioredis, "from_url", lambda *a, **k: redis)
+    monkeypatch.setattr(llm_module.rag_engine, "generate_embedding_async", warm_up)
+
+    async def _test():
+        worker = LLMWorker()
+        try:
+            await worker.run()
+        except asyncio.CancelledError:
+            pass
+        worker._heartbeat_task.cancel()
+
+    asyncio.run(_test())
+    assert calls[:2] == ["warm-up", "xreadgroup"]
+
+
 def test_stt_worker_reads_new_messages_when_no_pending_history():
     """
     XREADGROUP with ID '0' returns [[stream, []]] when nothing is pending. The old loop
