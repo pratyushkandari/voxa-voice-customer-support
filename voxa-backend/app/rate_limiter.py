@@ -5,15 +5,23 @@ Algorithm: each request is recorded as a member of a per-identity sorted set sco
 its timestamp. A Lua script atomically evicts entries older than the window, counts the
 rest, and admits the request only if the count is below the limit, so concurrent gateway
 replicas share one consistent budget without race conditions.
+
+Both checks fail open: if Redis is unreachable the request is admitted (and a warning is
+logged) on REST and WebSocket alike, because a Redis blip must not take the whole support
+service offline. The cost is that limits are not enforced while Redis is down.
 """
+import logging
 import time
 from typing import Optional
 
 import redis.asyncio as aioredis
 from fastapi import HTTPException, Request, status
+from redis.exceptions import RedisError
 
 from app.auth import decode_access_token
 from app.config import settings
+
+logger = logging.getLogger("voxa.rate_limiter")
 
 # KEYS[1] = sorted-set log, KEYS[2] = monotonic counter used to make members unique.
 SLIDING_WINDOW_LUA = """
@@ -56,7 +64,11 @@ class RateLimiter:
         """Returns True if the request is admitted, False if ``identifier`` is over budget."""
         now = int(time.time())
         key = f"ratelimit:{identifier}"
-        allowed = await self.lua_script(keys=[key, f"{key}:counter"], args=[now, window, limit])
+        try:
+            allowed = await self.lua_script(keys=[key, f"{key}:counter"], args=[now, window, limit])
+        except RedisError as e:
+            logger.warning(f"Rate limiter unavailable, admitting request: {e}")
+            return True
         return bool(allowed)
 
     async def check_idempotency(self, idempotency_key: str, user_id: str, ttl: int = 60) -> bool:
@@ -65,7 +77,11 @@ class RateLimiter:
         Returns True if this is a NEW request, False if it is a duplicate retry.
         """
         key = f"idempotency:{user_id}:{idempotency_key}"
-        is_new = await self.redis.set(key, "PROCESSING", nx=True, ex=ttl)
+        try:
+            is_new = await self.redis.set(key, "PROCESSING", nx=True, ex=ttl)
+        except RedisError as e:
+            logger.warning(f"Idempotency store unavailable, admitting request: {e}")
+            return True
         return bool(is_new)
 
 

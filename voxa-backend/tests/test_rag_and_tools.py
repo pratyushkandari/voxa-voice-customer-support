@@ -2,7 +2,7 @@ import asyncio
 import uuid
 import datetime
 from unittest.mock import AsyncMock, MagicMock
-from app.agent_tools import execute_tool_call
+from app.agent_tools import check_refund_eligibility, lookup_order
 from app.rag_engine import rag_engine
 
 def test_lookup_order_tool():
@@ -19,12 +19,7 @@ def test_lookup_order_tool():
         mock_result.scalar_one_or_none.return_value = mock_order
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await execute_tool_call(
-            tool_name="lookup_order",
-            arguments={"order_id": "ORD-88412"},
-            user_id=uuid.uuid4(),
-            db=mock_db_session
-        )
+        result = await lookup_order("ORD-88412", mock_db_session, uuid.uuid4())
 
         assert result["found"] is True
         assert result["status"] == "Shipped"
@@ -44,12 +39,7 @@ def test_check_refund_eligibility_tool():
         mock_result.scalar_one_or_none.return_value = mock_order
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await execute_tool_call(
-            tool_name="check_refund_eligibility",
-            arguments={"order_id": "ORD-88412"},
-            user_id=uuid.uuid4(),
-            db=mock_db_session
-        )
+        result = await check_refund_eligibility("ORD-88412", mock_db_session, uuid.uuid4())
 
         assert result["found"] is True
         assert result["eligible"] is True

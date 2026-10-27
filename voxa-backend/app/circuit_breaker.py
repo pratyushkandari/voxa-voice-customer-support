@@ -1,8 +1,12 @@
+import logging
 import time
 
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 
 from app.config import settings
+
+logger = logging.getLogger("voxa.circuit_breaker")
 
 
 class DistributedCircuitBreaker:
@@ -19,6 +23,10 @@ class DistributedCircuitBreaker:
         ``recovery_timeout`` seconds have passed since the trip.
       - HALF_OPEN: Recovery probation. Exactly one canary request is admitted via an
         atomic Redis lease (SET NX EX); success closes the breaker, failure re-opens it.
+
+    If Redis itself is unreachable the breaker fails open: ``can_execute`` admits the
+    request with state ``UNKNOWN`` and outcome bookkeeping is skipped (logged), so a Redis
+    outage never takes down answers that do not need Redis.
     """
     def __init__(
         self,
@@ -64,7 +72,11 @@ class DistributedCircuitBreaker:
         In HALF_OPEN state, uses an atomic Redis mutex ('probe_lock') with a 10s TTL
         so that exactly one request is dispatched to probe downstream health.
         """
-        state = await self.get_state(service_name)
+        try:
+            state = await self.get_state(service_name)
+        except RedisError as e:
+            logger.warning(f"Circuit breaker state unavailable, admitting request: {e}")
+            return True, "UNKNOWN"
         if state == "CLOSED":
             return True, "CLOSED"
 
@@ -98,6 +110,18 @@ class DistributedCircuitBreaker:
         return int(fails or 0), int(total or 0)
 
     async def record_success(self, service_name: str = "ai_worker"):
+        try:
+            await self._record_success(service_name)
+        except RedisError as e:
+            logger.warning(f"Could not record circuit breaker success: {e}")
+
+    async def record_failure(self, service_name: str = "ai_worker"):
+        try:
+            await self._record_failure(service_name)
+        except RedisError as e:
+            logger.warning(f"Could not record circuit breaker failure: {e}")
+
+    async def _record_success(self, service_name: str):
         state_key = f"circuit:{service_name}:state"
         state = await self.get_state(service_name)
         if state == "HALF_OPEN":
@@ -116,7 +140,7 @@ class DistributedCircuitBreaker:
             # would be failures/failures (=100%) and any 4 errors would trip the breaker.
             await self._count_outcome(service_name, failed=False)
 
-    async def record_failure(self, service_name: str = "ai_worker"):
+    async def _record_failure(self, service_name: str):
         state_key = f"circuit:{service_name}:state"
 
         current_state = await self.redis.get(state_key)

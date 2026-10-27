@@ -4,10 +4,10 @@ LLM ("reasoning") worker: consumes prompts from ``stream:llm:inference`` (group
 channel ``token:stream:{session_id}``. Voice-originated prompts are also forwarded to
 the TTS stream.
 
-Answer generation today is deterministic: tool intents (order lookup, refund check,
-human escalation) are executed against PostgreSQL, and everything else is answered with
-the best-matching knowledge-base passage from pgvector. ``LLM_MODEL_NAME`` names the
-generative model this worker is designed to host, but no generative model is loaded yet.
+Answer generation is deterministic: prompts go through ``answer_text_query``, the same
+priority-ordered router the gateway uses for WebSocket text queries (guardrails, tools
+against PostgreSQL, canned policies, semantic cache, pgvector knowledge base), so REST,
+voice and console users get identical answers. No generative model is involved.
 """
 import asyncio
 import json
@@ -18,49 +18,26 @@ from typing import List, Optional, Tuple
 
 import redis.asyncio as aioredis
 
-from app.agent_tools import detect_tool_intent, execute_tool_call
+from app.agent_tools import answer_text_query
 from app.config import settings
-from app.database import AsyncSessionLocal
-from app.queue_manager import session_channel
+from app.queue_manager import keep_claimed, session_channel
 from app.rag_engine import rag_engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.llm_worker")
 
 MAX_ATTEMPTS = 3
-FALLBACK_POLICY_ANSWER = (
-    "Thank you for contacting Voxa support! All purchases include a 30-day "
-    "money-back guarantee and 1-year manufacturer warranty. Domestic orders arrive in "
-    "3 to 5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
-)
-
-
-def format_tool_response(tool_name: str, tool_result: dict) -> str:
-    """Renders a tool result as a customer-facing sentence (handles 'not found' results)."""
-    if tool_name in ("lookup_order", "check_refund_eligibility") and not tool_result.get("found"):
-        return tool_result.get("message", "I could not find that order. Please double check the ID.")
-    if tool_name == "lookup_order":
-        return (f"Order {tool_result.get('order_id')} ({tool_result.get('item_name')}) is currently "
-                f"{tool_result.get('status')}. Tracking number: {tool_result.get('tracking_number')}.")
-    if tool_name == "check_refund_eligibility":
-        verdict = "Eligible for full refund" if tool_result.get("eligible") else "Ineligible for refund"
-        return f"Order {tool_result.get('order_id')}: {verdict} ({tool_result.get('reason')})."
-    return (f"I have escalated your request to a human supervisor (Ticket ID: {tool_result.get('ticket_id')}). "
-            f"Priority: {tool_result.get('priority')}.")
 
 
 class LLMWorker:
-    def __init__(self, model_name: str = settings.LLM_MODEL_NAME, redis_url: str = settings.REDIS_URL):
+    def __init__(self, redis_url: str = settings.REDIS_URL):
         self.worker_id = f"llm-worker-{str(uuid.uuid4())[:8]}"
         self.redis_url = redis_url
         self.stream_name = settings.STREAM_LLM_INFERENCE
         self.group_name = "llm_group"
         self.batch_window_ms = 15  # XREADGROUP block time used to coalesce a micro-batch
         self.max_batch_size = 8
-        logger.info(
-            f"🧠 LLM worker {self.worker_id} ready (deterministic tool routing + pgvector RAG; "
-            f"generative model '{model_name}' is not loaded)."
-        )
+        logger.info(f"🧠 LLM worker {self.worker_id} ready (deterministic router + pgvector RAG).")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
@@ -70,25 +47,18 @@ class LLMWorker:
                 logger.error(f"Heartbeat emission failed: {e}")
             await asyncio.sleep(5)
 
-    async def generate_response(self, prompt: str, user_id: Optional[str]) -> str:
-        """Resolves a prompt to an answer via tool routing or knowledge-base retrieval."""
-        has_tool, tool_name, tool_args = detect_tool_intent(prompt)
-        if has_tool:
-            parsed_uid = None
-            if user_id and user_id != "guest":
-                try:
-                    parsed_uid = uuid.UUID(str(user_id))
-                except (ValueError, TypeError):
-                    parsed_uid = None
-            async with AsyncSessionLocal() as db:
-                tool_result = await execute_tool_call(tool_name, tool_args, parsed_uid, db)
-            return format_tool_response(tool_name, tool_result)
-
-        async with AsyncSessionLocal() as db:
-            rag_docs = await rag_engine.search_knowledge_base(prompt, db, limit=2)
-        if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
-            return f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
-        return FALLBACK_POLICY_ANSWER
+    async def generate_response(self, prompt: str, user_id: Optional[str]) -> Tuple[str, bool]:
+        """
+        Answers an already-sanitised prompt (the gateway and the STT worker sanitise at
+        ingress) with the shared router; returns ``(text, cache_hit)``.
+        """
+        parsed_uid = None
+        if user_id and user_id != "guest":
+            try:
+                parsed_uid = uuid.UUID(str(user_id))
+            except (ValueError, TypeError):
+                parsed_uid = None
+        return await answer_text_query(prompt, prompt, parsed_uid)
 
     async def process_message(self, msg_id: str, payload: dict, redis: aioredis.Redis):
         """Handles one task end-to-end. Never raises: failures are retried, then DLQ'd."""
@@ -99,7 +69,7 @@ class LLMWorker:
         start_time = time.time()
 
         try:
-            response_text = await self.generate_response(payload.get("prompt", ""), payload.get("user_id"))
+            response_text, cache_hit = await self.generate_response(payload.get("prompt", ""), payload.get("user_id"))
         except Exception as e:
             logger.error(f"[{trace_id}] Task {msg_id} failed (attempt {retry_count + 1}): {e}")
             if retry_count + 1 >= MAX_ATTEMPTS:
@@ -136,6 +106,7 @@ class LLMWorker:
                 "token": token + " ",
                 "is_final": False,
                 "ttft_ms": ttft_ms,
+                "cache_hit": cache_hit,
                 "trace_id": trace_id
             }))
             await asyncio.sleep(0.03)
@@ -146,16 +117,27 @@ class LLMWorker:
             "is_final": True,
             "ttft_ms": ttft_ms,
             "total_latency_ms": int((time.time() - start_time) * 1000),
+            "cache_hit": cache_hit,
             "trace_id": trace_id
         }))
 
         await redis.xack(self.stream_name, self.group_name, msg_id)
 
     async def process_batch(self, batch: List[Tuple[str, dict]], redis: aioredis.Redis):
-        """Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order."""
+        """
+        Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order.
+        Entries still waiting their turn are kept claimed so the supervisor does not mistake
+        them for stranded work and enqueue duplicates.
+        """
         logger.info(f"⚡ Processing micro-batch of {len(batch)} items...")
-        for msg_id, payload in batch:
-            await self.process_message(msg_id, payload, redis)
+        claim_task = asyncio.create_task(
+            keep_claimed(redis, self.stream_name, self.group_name, self.worker_id, [m for m, _ in batch])
+        )
+        try:
+            for msg_id, payload in batch:
+                await self.process_message(msg_id, payload, redis)
+        finally:
+            claim_task.cancel()
 
     async def run(self):
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
@@ -163,6 +145,14 @@ class LLMWorker:
             await redis.xgroup_create(self.stream_name, self.group_name, id="0", mkstream=True)
         except Exception:
             pass  # BUSYGROUP: group already exists
+
+        # Load the embedding model before taking work, as the gateway does at start-up:
+        # loading it lazily on the first generic prompt took ~20s, as long as the gateway
+        # waits for an answer, so that first REST/voice question fell back to an error.
+        try:
+            await rag_engine.generate_embedding_async("warm-up")
+        except Exception as e:
+            logger.warning(f"Embedding model warm-up failed: {e}")
 
         # Keep a reference: asyncio only holds weak references to running tasks.
         self._heartbeat_task = asyncio.create_task(self.emit_heartbeat(redis))

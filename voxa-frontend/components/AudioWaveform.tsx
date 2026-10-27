@@ -3,12 +3,11 @@
 import React, { useEffect, useRef } from 'react';
 
 interface AudioWaveformProps {
-  isActive?: boolean;
   isPlaying?: boolean;
 }
 
-export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive, isPlaying }) => {
-  const active = isActive || isPlaying || false;
+export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isPlaying }) => {
+  const active = isPlaying || false;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -17,7 +16,10 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive, isPlayin
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let animationId: number;
+    // Animate only while active and motion is allowed; otherwise one static frame is
+    // drawn, so an idle (or hidden, on small screens) waveform costs nothing per frame.
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let animationId: number | null = null;
     let time = 0;
     const barCount = 42;
 
@@ -57,13 +59,13 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isActive, isPlayin
         ctx.fill();
       }
 
-      animationId = requestAnimationFrame(draw);
+      if (active && !reduceMotion) animationId = requestAnimationFrame(draw);
     };
 
     draw();
 
     return () => {
-      cancelAnimationFrame(animationId);
+      if (animationId !== null) cancelAnimationFrame(animationId);
     };
   }, [active]);
 

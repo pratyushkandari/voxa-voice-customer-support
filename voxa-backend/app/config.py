@@ -19,10 +19,6 @@ DEFAULT_CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$"
 
 
 class Settings(BaseSettings):
-    # App Settings
-    APP_NAME: str = "Voxa 2.0"
-    ENVIRONMENT: str = "production"
-
     # Database Configuration
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/voxa_db"
 
@@ -59,8 +55,7 @@ class Settings(BaseSettings):
     # How long the REST SSE endpoint waits for the LLM worker before falling back
     LLM_RESPONSE_TIMEOUT_SEC: float = 20.0
 
-    # AI Models
-    LLM_MODEL_NAME: str = "Qwen/Qwen2.5-0.5B-Instruct"  # Reserved: not loaded by the current LLM worker
+    # AI Models (answers are produced by a deterministic router; no generative model is used)
     STT_MODEL_SIZE: str = "base"
     TTS_VOICE: str = "en-US-AriaNeural"
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

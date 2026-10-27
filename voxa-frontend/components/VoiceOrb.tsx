@@ -24,16 +24,23 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, aud
 
     let animationFrameId: number;
     let phase = 0;
+    // With reduced motion the orb still reflects state and mic level, but its wave is still.
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
     const render = () => {
+      animationFrameId = requestAnimationFrame(render);
+      // The orb lives in a sidebar that is display:none on small screens; skip the
+      // drawing work while it is not rendered.
+      if (canvas.offsetParent === null) return;
+
       const { isSpeaking, isListening, audioLevel } = propsRef.current;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
-      
+
       // Base radius
       const baseRadius = 55 + (audioLevel * 35);
-      phase += 0.04;
+      if (!reduceMotion) phase += 0.04;
 
       // Outer glow circle
       const gradient = ctx.createRadialGradient(
@@ -96,8 +103,6 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({ isSpeaking, isListening, aud
       ctx.shadowColor = isSpeaking ? '#06b6d4' : isListening ? '#ec4899' : '#4f46e5';
       ctx.fill();
       ctx.shadowBlur = 0; // Reset shadow
-
-      animationFrameId = requestAnimationFrame(render);
     };
 
     render();

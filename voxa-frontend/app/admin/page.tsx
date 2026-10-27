@@ -199,7 +199,8 @@ export default function AdminDashboard() {
             <button
               type="button"
               onClick={loadDashboard}
-              className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+              disabled={isRefreshing}
+              className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:cursor-wait"
               aria-label="Refresh metrics"
               title="Refresh"
             >
@@ -227,7 +228,7 @@ export default function AdminDashboard() {
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-400" aria-hidden="true" /> {errorMessage}
           </span>
-          <button type="button" onClick={loadDashboard} className="text-xs font-semibold text-rose-100 hover:text-white">
+          <button type="button" onClick={loadDashboard} disabled={isRefreshing} className="text-xs font-semibold text-rose-100 hover:text-white disabled:opacity-60 disabled:cursor-wait">
             Retry
           </button>
         </div>
@@ -289,18 +290,18 @@ export default function AdminDashboard() {
           <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
             <div className="p-5 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/80 transition-all">
               <div className="flex items-center justify-between text-slate-400 mb-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Average TTFT</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Average TTFT</span>
                 <Zap className="w-4 h-4 text-indigo-400" aria-hidden="true" />
               </div>
               <div className="text-2xl font-bold text-slate-100">{metrics.avg_ttft_ms} ms</div>
-              <span className={`text-[11px] font-mono ${ttftMet === null ? 'text-slate-500' : ttftMet ? 'text-emerald-400' : 'text-amber-300'}`}>
+              <span className={`text-[11px] font-mono ${ttftMet === null ? 'text-slate-400' : ttftMet ? 'text-emerald-400' : 'text-amber-300'}`}>
                 {ttftMet === null ? 'No responses recorded yet' : `Target <${TTFT_TARGET_MS}ms ${ttftMet ? 'met' : 'missed'}`}
               </span>
             </div>
 
             <div className="p-5 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/80 transition-all">
               <div className="flex items-center justify-between text-slate-400 mb-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Cache Hit Ratio</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Cache Hit Ratio</span>
                 <Database className="w-4 h-4 text-cyan-400" aria-hidden="true" />
               </div>
               <div className="text-2xl font-bold text-slate-100">{(metrics.cache_hit_ratio * 100).toFixed(1)}%</div>
@@ -309,7 +310,7 @@ export default function AdminDashboard() {
 
             <div className="p-5 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/80 transition-all">
               <div className="flex items-center justify-between text-slate-400 mb-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Active Workers</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Active Workers</span>
                 <Cpu className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               </div>
               <div className="text-2xl font-bold text-slate-100">{metrics.active_workers}</div>
@@ -318,7 +319,7 @@ export default function AdminDashboard() {
 
             <div className="p-5 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/80 transition-all">
               <div className="flex items-center justify-between text-slate-400 mb-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Queue Depth</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Queue Depth</span>
                 <Activity className="w-4 h-4 text-pink-400" aria-hidden="true" />
               </div>
               <div className="text-2xl font-bold text-slate-100">{metrics.queue_depth} Tasks</div>
@@ -337,7 +338,7 @@ export default function AdminDashboard() {
               ['Messages', metrics.total_messages]
             ].map(([label, value]) => (
               <div key={label as string} className="px-4 py-3 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
-                <dt className="text-slate-500">{label}</dt>
+                <dt className="text-slate-400">{label}</dt>
                 <dd className="text-slate-200 font-semibold">{value}</dd>
               </div>
             ))}
@@ -346,15 +347,15 @@ export default function AdminDashboard() {
           {/* Cluster Components & Support Escalation Queue */}
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
             <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800/80 lg:col-span-1">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
                 <Server className="w-4 h-4 text-indigo-400" aria-hidden="true" /> Pipeline Components
-              </h3>
+              </h2>
               <div className="space-y-3 font-mono text-xs">
                 {WORKER_FLEET.map((component) => (
                   <div key={component.name} className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-200">{component.name}</div>
-                      <div className="text-[10px] text-slate-500 truncate">{component.detail}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{component.detail}</div>
                     </div>
                     <span className="text-slate-400 text-[10px] font-semibold flex-shrink-0">{component.group}</span>
                   </div>
@@ -364,10 +365,10 @@ export default function AdminDashboard() {
 
             <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800/80 lg:col-span-2">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   <Headphones className="w-4 h-4 text-purple-400" aria-hidden="true" /> Support Escalation Queue
-                </h3>
-                <span className="text-[11px] text-slate-500 font-mono">
+                </h2>
+                <span className="text-[11px] text-slate-400 font-mono">
                   {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}
                 </span>
               </div>
@@ -387,7 +388,7 @@ export default function AdminDashboard() {
                           <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityStyle(ticket.priority)}`}>
                             {ticket.priority}
                           </span>
-                          <span className="text-[10px] text-slate-500 font-mono">{new Date(ticket.created_at).toLocaleString()}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">{new Date(ticket.created_at).toLocaleString()}</span>
                         </div>
                         <p className="text-slate-300 text-xs leading-relaxed break-words">{ticket.issue_summary}</p>
                       </div>

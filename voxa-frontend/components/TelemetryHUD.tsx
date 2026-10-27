@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, ChevronDown, ChevronUp, Zap, Cpu, ShieldCheck } from 'lucide-react';
 
 interface TelemetryHUDProps {
@@ -28,13 +28,36 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   circuitBreakerState
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
   const hasData = ttftMs !== null;
   const breakerOk = !circuitBreakerState || circuitBreakerState === 'CLOSED';
 
+  // Close on Escape (returning focus to the toggle) or on a click outside the popover.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsExpanded(false);
+        toggleRef.current?.focus();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setIsExpanded(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [isExpanded]);
+
   return (
-    <div className="relative font-mono text-xs z-50">
+    <div ref={containerRef} className="relative font-mono text-xs z-50">
       {/* Header Inline Pill Badge */}
       <button
+        ref={toggleRef}
         type="button"
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-200 transition-all select-none shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -102,7 +125,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
               </div>
 
               <div className="pt-2 border-t border-slate-800 flex flex-col gap-1">
-                <span className="text-[10px] text-slate-500 font-medium uppercase">Correlation Trace ID:</span>
+                <span className="text-[10px] text-slate-400 font-medium uppercase">Correlation Trace ID:</span>
                 <span className="text-[10px] text-slate-400 truncate bg-slate-900/80 p-2 rounded-lg border border-slate-800 font-mono select-all">
                   {traceId || '—'}
                 </span>

@@ -190,7 +190,7 @@ export default function LandingPage() {
       </main>
 
       {/* Clean Footer */}
-      <footer className="w-full max-w-6xl mx-auto px-6 py-6 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3 z-10">
+      <footer className="w-full max-w-6xl mx-auto px-6 py-6 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-3 z-10">
         <div>
           <span>Voxa Customer Support Platform • Real-Time Voice AI Architecture</span>
         </div>
