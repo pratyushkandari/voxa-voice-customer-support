@@ -104,18 +104,18 @@ export default function LandingPage() {
       <main className="w-full max-w-5xl mx-auto px-6 py-12 flex flex-col items-center text-center my-auto z-10">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 mb-6 shadow-sm">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Real-Time Voice AI & Enterprise Knowledge Gateway</span>
+          <span>Voice and text customer support</span>
         </div>
 
         <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-white max-w-3xl leading-[1.12]">
-          Instant Customer Support with{' '}
+          Customer Support by{' '}
           <span className="bg-gradient-to-r from-indigo-400 via-cyan-300 to-indigo-200 bg-clip-text text-transparent">
-            Low-Latency Voice AI
+            Voice or Text
           </span>
         </h1>
 
         <p className="mt-6 text-base md:text-lg text-slate-400 max-w-2xl font-normal leading-relaxed">
-          An asynchronous, full-duplex support platform combining streaming WebSocket responses, PostgreSQL vector search, and distributed resilience to automate high-volume inquiries.
+          Ask about an order, a refund or a policy by typing or speaking. The facts come from PostgreSQL and a pgvector knowledge base, Gemini writes the reply, and it streams back over a WebSocket.
         </p>
 
         {/* Action Controls */}
@@ -173,7 +173,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-sm font-semibold text-slate-200">Fault-Tolerant Workflows</h3>
             <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-              3-state circuit breakers and Dead-Letter Queues (DLQ) with automated escalation tickets.
+              A circuit breaker around Gemini with plain-text fallback replies, and worker retries with a dead-letter queue.
             </p>
           </div>
 
@@ -181,7 +181,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-3">
               <Activity className="w-4 h-4 text-purple-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-200">Live SRE Observability</h3>
+            <h3 className="text-sm font-semibold text-slate-200">Observability</h3>
             <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
               Prometheus metrics plus an operations console for latency, cache hit ratio and queue backlog.
             </p>
@@ -192,7 +192,7 @@ export default function LandingPage() {
       {/* Clean Footer */}
       <footer className="w-full max-w-6xl mx-auto px-6 py-6 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-3 z-10">
         <div>
-          <span>Voxa Customer Support Platform • Real-Time Voice AI Architecture</span>
+          <span>Voxa customer support</span>
         </div>
         <div className="flex items-center gap-4" aria-live="polite">
           <span className="flex items-center gap-1.5">

@@ -60,7 +60,7 @@ const statusStyle = (status: string) =>
 
 const WORKER_FLEET = [
   { name: 'Faster-Whisper STT', detail: 'INT8 CTranslate2 • stream:audio:transcribe', group: 'stt_group' },
-  { name: 'LLM / Tool-Routing Worker', detail: 'Tools + pgvector RAG • stream:llm:inference', group: 'llm_group' },
+  { name: 'LLM Worker (Gemini)', detail: 'Router facts + Gemini replies • stream:llm:inference', group: 'llm_group' },
   { name: 'edge-tts Synthesis', detail: 'Neural voice • stream:tts:synthesize', group: 'tts_group' },
   { name: 'PostgreSQL + pgvector', detail: '384-dim HNSW cosine index', group: 'storage' }
 ];
