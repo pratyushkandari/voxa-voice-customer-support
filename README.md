@@ -1,5 +1,7 @@
 # Voxa
 
+[![CI](https://github.com/pratyushkandari/voxa-voice-customer-support/actions/workflows/ci.yml/badge.svg)](https://github.com/pratyushkandari/voxa-voice-customer-support/actions/workflows/ci.yml)
+
 A real-time customer-support platform with streaming voice and text chat.
 
 The web console holds a WebSocket to a FastAPI gateway. Typed questions are answered by the gateway. Spoken questions go through workers connected by Redis Streams: Faster-Whisper turns the recording into text, the LLM worker answers it, and edge-tts speaks the reply. Each worker can be scaled and restarted on its own.
