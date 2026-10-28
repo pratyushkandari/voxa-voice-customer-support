@@ -79,7 +79,6 @@ def test_rate_limiter_fails_open_when_redis_is_down():
         limiter.lua_script = UnreachableRedis().evalsha
         limiter.redis = UnreachableRedis()
         assert await limiter.check_rate_limit("ip:1.2.3.4") is True
-        assert await limiter.check_idempotency("key", "ip:1.2.3.4") is True
 
     asyncio.run(_test())
 

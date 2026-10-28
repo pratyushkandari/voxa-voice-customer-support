@@ -225,7 +225,7 @@ voxa-backend/
     llm.py               Gemini reply writer, fallback and circuit breaker use
     rag_engine.py        semantic cache (Redis) and pgvector search
     circuit_breaker.py   Redis-backed three-state breaker
-    rate_limiter.py      sliding-window limiter (Lua) and idempotency keys
+    rate_limiter.py      sliding-window rate limiter (Lua script in Redis)
     guardrails.py        PII masking and prompt-injection checks
     queue_manager.py     Redis Streams producer and consumer-group setup
     auth.py              bcrypt, JWT, guest accounts, role checks
