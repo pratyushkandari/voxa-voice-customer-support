@@ -44,7 +44,6 @@ export default function LandingPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.access_token) {
         localStorage.setItem('voxa_token', data.access_token);
-        localStorage.setItem('voxa_user', JSON.stringify(data.user));
         router.push('/chat');
         return;
       }
