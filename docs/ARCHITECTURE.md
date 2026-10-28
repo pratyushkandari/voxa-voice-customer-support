@@ -127,7 +127,8 @@ The gateway creates these consumer groups on start-up (idempotently):
 | `stream:audio:transcribe` | `stt_group` | STT worker |
 | `stream:llm:inference` | `llm_group` | LLM worker (up to 8 entries per read, answered concurrently) |
 | `stream:tts:synthesize` | `tts_group` | TTS worker |
-| `stream:dead:letter:queue` | `dlq_group` | inspected manually |
+
+The dead-letter stream, `stream:dead:letter:queue`, has no consumer group: nothing consumes it, and it's inspected with `XRANGE`.
 
 Every `XADD` uses `MAXLEN ~ 10000`, so acknowledged entries don't accumulate.
 

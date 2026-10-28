@@ -55,12 +55,14 @@ class QueueManager:
         self.redis = aioredis.from_url(redis_url, decode_responses=True)
 
     async def init_consumer_groups(self):
-        """Idempotently creates the worker consumer groups (and their streams)."""
+        """
+        Idempotently creates the worker consumer groups (and their streams). The dead-letter
+        stream needs no group: nothing consumes it, it is inspected with XRANGE.
+        """
         streams = [
             (settings.STREAM_STT_AUDIO, "stt_group"),
             (settings.STREAM_LLM_INFERENCE, "llm_group"),
             (settings.STREAM_TTS_SYNTHESIS, "tts_group"),
-            (settings.STREAM_DLQ, "dlq_group")
         ]
         for stream, group in streams:
             try:
