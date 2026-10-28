@@ -320,6 +320,11 @@ def test_tampered_token_is_rejected():
     assert user_id_from_token(forged) is None
 
 
+def test_expired_token_is_rejected():
+    token = create_access_token({"sub": str(uuid.uuid4()), "role": "user"}, expires_delta=timedelta(seconds=-1))
+    assert decode_access_token(token) is None and user_id_from_token(token) is None
+
+
 def test_non_uuid_subject_does_not_crash():
     """A token whose 'sub' is not a UUID used to raise ValueError (HTTP 500)."""
     assert user_id_from_token(create_access_token({"sub": "user-12345"})) is None
