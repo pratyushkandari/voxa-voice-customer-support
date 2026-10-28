@@ -19,13 +19,18 @@ PHONE_REGEX = re.compile(
 )
 SSN_REGEX = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
 
-# Prompt injection signatures to neutralize
+# Prompt injection signatures to neutralize. This is only the first layer: Gemini is
+# also told to treat the message as untrusted, and it only ever sees owner-checked facts.
 PROMPT_INJECTION_PATTERNS = [
     re.compile(r'ignore\s+(all\s+)?(previous|prior)\s+instructions?', re.IGNORECASE),
     re.compile(r'system\s+prompt\s+override', re.IGNORECASE),
     re.compile(r'you\s+are\s+now\s+(DAN|an\s+unfiltered|jailbroken)', re.IGNORECASE),
     re.compile(r'disregard\s+all\s+safety\s+rules', re.IGNORECASE),
-    re.compile(r'output\s+the\s+system\s+prompt', re.IGNORECASE),
+    re.compile(r'(reveal|show|print|repeat|output)\s+(me\s+)?(your|the)\s+(system\s+)?prompt', re.IGNORECASE),
+    re.compile(r'(act|behave)\s+as\s+(an?\s+|the\s+)?(admin|administrator|developer|root)\b', re.IGNORECASE),
+    re.compile(r'pretend\s+(that\s+)?(you\s+are|to\s+be)\s+(an?\s+|the\s+)?(admin|administrator|developer|root)\b',
+               re.IGNORECASE),
+    re.compile(r'forget\s+(all\s+)?(your|the|previous|prior)\s+(rules|instructions|guidelines)', re.IGNORECASE),
 ]
 
 INJECTION_PLACEHOLDER = "[BLOCKED_INSTRUCTION_OVERRIDE]"
