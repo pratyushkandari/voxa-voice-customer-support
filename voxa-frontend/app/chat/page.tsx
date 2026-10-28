@@ -278,6 +278,10 @@ export default function ChatPage() {
         if (wsRef.current === ws) wsRef.current = null;
         if (disposed) return;
         setIsSpeaking(false);
+        // Replies are tied to the closed session, so a voice message still waiting will never be answered.
+        setMessages((prev) =>
+          prev.map((m) => (m.pending ? { ...m, content: 'Voice message (the connection dropped before it was answered)', pending: false } : m))
+        );
         scheduleReconnect();
       };
     };
