@@ -69,16 +69,16 @@ All frames are JSON text frames. A binary frame gets an `error` reply.
     "type": "token_chunk",
     "token": "",
     "is_final": true,
-    "ttft_ms": 4,
-    "total_latency_ms": 5,
+    "ttft_ms": 2407,
+    "total_latency_ms": 2567,
     "cache_hit": false,
-    "fallback": true,
-    "circuit_breaker": null,
+    "fallback": false,
+    "circuit_breaker": "CLOSED",
     "trace_id": "b1a47df1-0c5a-4e89-b7b5-fb358a9ce71b"
   }
   ```
 
-  This one is a fallback reply sent without an API key. `fallback` is `true` whenever the plain reply was sent instead of Gemini's. `circuit_breaker` is the Gemini breaker state whenever it was checked, and `null` when it wasn't (no key, a cache hit, a blocked injection attempt). For voice, `ttft_ms` and `total_latency_ms` are measured by the LLM worker and don't include transcription.
+  This one is a reply Gemini wrote for an order question. `fallback` is `true` whenever the plain reply was sent instead of Gemini's. `circuit_breaker` is the Gemini breaker state whenever it was checked, and `null` when it wasn't (no key, a cache hit, a blocked injection attempt). For voice, `ttft_ms` and `total_latency_ms` are measured by the LLM worker and don't include transcription.
 
 - `audio_response`: base64 MP3 of the reply from the TTS worker (voice requests only). It arrives after the final `token_chunk`.
 - `error`: a validation failure, a rate limit, an empty transcript, a dead-lettered task or an answering failure.

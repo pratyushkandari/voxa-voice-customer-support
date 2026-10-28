@@ -7,7 +7,7 @@ How to diagnose and fix the common problems in a Voxa deployment run with `docke
 | What | Target | Where to look |
 | --- | --- | --- |
 | Availability | 99.9% over 30 days | gateway `/health` |
-| Time to first token (p95) | ≤ 2 s | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
+| Time to first token (p95) | ≤ 6 s (Gemini replies measured 2.4–5.7 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
 | Gemini fallback rate | ≤ 5% | `gemini_requests_total{outcome="fallback"}` |
 | End-to-end latency (p95) | tracked, no target yet | `p95_latency_ms` in `/v1/admin/metrics` |
 | Queue backlog | ≤ 100 tasks | `queue_depth` in `/v1/admin/metrics` (pending + lag) |
@@ -26,7 +26,11 @@ How to diagnose and fix the common problems in a Voxa deployment run with `docke
    docker logs --since 10m voxa-gateway | grep "Gemini reply failed"
    docker logs --since 10m voxa-llm-worker | grep "Gemini reply failed"
    ```
-   - `ClientError: 429 RESOURCE_EXHAUSTED`: the quota is used up. Free-tier limits reset daily. Wait, or use a paid key.
+   - `ClientError: 429 RESOURCE_EXHAUSTED`: the quota is used up. The error's `quotaId` says which limit:
+     - `...PerMinute...` clears within a minute.
+     - `...PerDay...` resets at midnight Pacific time.
+     - Free-tier keys were limited to 5 requests a minute and 20 a day per model on 2026-10-28.
+     - Wait, point `GEMINI_MODEL` at another model (each has its own quota), or enable billing on the key's project.
    - `ClientError: 400` / `403`: a bad key or model name. Check `GEMINI_API_KEY` and `GEMINI_MODEL` in `.env`, then `docker compose up -d gateway llm-worker`.
    - `TimeoutError`: Gemini took longer than 10 s. Check the Gemini status page and `gemini_request_duration_seconds`.
 3. If every reply is a fallback and there are no errors in the logs, the key isn't set:

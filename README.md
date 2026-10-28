@@ -238,8 +238,11 @@ docker-compose.yml
 
 ## Known limitations
 
-- **Gemini free tier.** Google may use free-tier prompts to improve its products. PII is masked before the call and the demo data is fictional, but use a paid key for real customer data. Free-tier quotas are small, so a busy demo will see fallback replies.
-- **Latency.** With Gemini, time to first token includes Gemini's response time, which hasn't been benchmarked here. Cache hits and fallback replies arrive in a few milliseconds.
+- **Gemini free tier.** On 2026-10-28 the API limited `gemini-3.6-flash` free-tier keys to 5 requests a minute and 20 a day. Past that, replies fall back until the quota resets; the semantic cache helps with repeated questions. Google may also use free-tier prompts to improve its products. PII is masked before the call and the demo data is fictional, but use a paid key for real traffic.
+- **Latency.** Measured locally with `gemini-3.6-flash` at thinking level low:
+  - Gemini replies: time to first token was 2.4–5.7 s, with one 10.5 s outlier in direct API calls. Replies are short, so most of that is time to first token.
+  - Semantic cache hits: about 0.2 s.
+  - Fallback replies: a few milliseconds.
 - **Spoken order IDs.** Whisper sometimes mishears "ORD" (as "or D", say). The reply then has no order facts and asks for the order ID.
 - **Voice needs HTTPS** outside `localhost`, because browsers only allow the microphone in secure contexts.
 - **Schema changes.** Tables are created with `create_all` at start-up, and there are no migrations.
