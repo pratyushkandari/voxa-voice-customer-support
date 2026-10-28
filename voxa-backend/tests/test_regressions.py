@@ -139,6 +139,38 @@ def test_supervisor_dead_letters_recycled_poison_message():
     asyncio.run(_test())
 
 
+def test_supervisor_requeues_stranded_entries_and_dead_letters_exhausted_ones():
+    """redis-py reports idle time and delivery count as time_since_delivered / times_delivered."""
+    async def _test():
+        supervisor = WorkerSupervisor()
+        supervisor.streams_to_monitor = [("stream:audio:transcribe", "stt_group")]
+        redis = AsyncMock()
+        redis.xpending = AsyncMock(return_value={"pending": 2})
+        redis.xpending_range = AsyncMock(return_value=[
+            {"message_id": "1001-0", "time_since_delivered": 20000, "times_delivered": 1},  # retry
+            {"message_id": "1002-0", "time_since_delivered": 25000, "times_delivered": 3},  # give up
+        ])
+        redis.xclaim = AsyncMock(side_effect=[
+            [("stream:audio:transcribe", {"payload": "audio_1"})],
+            [("stream:audio:transcribe", {"payload": "poison_audio"})],
+        ])
+
+        await supervisor.scan_and_reclaim_stranded_tasks(redis)
+
+        xadd_calls = [c.args for c in redis.xadd.call_args_list]
+        assert ("stream:audio:transcribe", {
+            "payload": "audio_1", "retry_count": "2", "reclaimed_from_msg_id": "1001-0"
+        }) in xadd_calls
+        dlq_payloads = [payload for stream, payload in xadd_calls if stream == settings.STREAM_DLQ]
+        assert len(dlq_payloads) == 1 and dlq_payloads[0]["payload"] == "poison_audio"
+        redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1001-0")
+        redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1002-0")
+        # Every XADD is length-capped so streams cannot grow without bound
+        assert all(c.kwargs.get("maxlen") for c in redis.xadd.call_args_list)
+
+    asyncio.run(_test())
+
+
 def test_supervisor_only_fetches_entries_past_the_idle_threshold():
     """Only the first 10 PEL entries were inspected, so busy entries at the head hid stranded ones."""
     async def _test():
@@ -356,6 +388,19 @@ def test_router_word_boundaries(monkeypatch):
     agent_tools.lookup_order.assert_not_awaited()
     agent_tools.escalate_to_human.assert_not_awaited()
     assert agent_tools.ORDER_ID_PATTERN.search("Where is ord-88412?")
+
+
+def test_router_legal_keywords_use_word_boundaries(monkeypatch):
+    """Substring matching made 'tissue'/'issue' open legal escalations."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "escalate_to_human", AsyncMock(return_value={"ticket_id": "T1"}))
+    monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
+
+    def answer(text):
+        return asyncio.run(agent_tools.route_query(text, text, None)).fallback
+
+    assert answer("Can you pass me a tissue for this issue?") == "GENERIC"
+    assert "urgent ticket #T1" in answer("I will sue your company unless you refund me")
 
 
 def test_router_understands_order_ids_without_hyphen(monkeypatch):
