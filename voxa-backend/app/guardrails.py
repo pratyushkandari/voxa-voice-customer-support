@@ -2,14 +2,21 @@
 Ingress guardrails: PII masking and prompt-injection neutralisation.
 
 These run on every user utterance before it is routed, embedded, cached or persisted,
-so raw card numbers / SSNs never reach Redis, PostgreSQL or the worker fleet.
+so raw card numbers, phone numbers, emails and SSNs never reach Redis, PostgreSQL, the
+worker fleet or Gemini.
 """
 import re
 from typing import Tuple
 
 # Regex patterns for sensitive PII
+EMAIL_REGEX = re.compile(r'\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b')
 CREDIT_CARD_REGEX = re.compile(r'\b(?:\d[ -]*?){13,16}\b')
-PHONE_REGEX = re.compile(r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b')
+# An optional country code, then a 10-digit number written the US way (555-123-4567,
+# (555) 123-4567) or the Indian way (98765 43210).
+PHONE_REGEX = re.compile(
+    r'(?<!\w)(?:\+?\d{1,3}[-.\s]?)?'
+    r'(?:\(\d{3}\)\s?\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\d{5}[-.\s]?\d{5})(?!\w)'
+)
 SSN_REGEX = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
 
 # Prompt injection signatures to neutralize
@@ -26,13 +33,18 @@ INJECTION_PLACEHOLDER = "[BLOCKED_INSTRUCTION_OVERRIDE]"
 
 def mask_pii(text: str) -> Tuple[str, bool]:
     """
-    Masks sensitive Personally Identifiable Information (PII) including
-    credit card numbers, US phone numbers, and Social Security Numbers.
+    Masks sensitive Personally Identifiable Information (PII): email addresses, credit
+    card numbers, phone numbers and US Social Security Numbers.
     Returns (sanitized_text, has_masked_pii).
     """
     masked = False
 
-    # Card numbers are checked first: a 16-digit card would otherwise be partially
+    # Emails first, so digits inside an address are not half-masked as a phone number.
+    if EMAIL_REGEX.search(text):
+        text = EMAIL_REGEX.sub("[REDACTED_EMAIL]", text)
+        masked = True
+
+    # Card numbers before phones: a 16-digit card would otherwise be partially
     # consumed by the phone pattern.
     if CREDIT_CARD_REGEX.search(text):
         text = CREDIT_CARD_REGEX.sub("[REDACTED_CREDIT_CARD]", text)
