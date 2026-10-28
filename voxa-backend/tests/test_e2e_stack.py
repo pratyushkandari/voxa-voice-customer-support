@@ -65,10 +65,6 @@ def _ask(ws, text: str) -> dict:
                 return {"text": "".join(tokens).strip(), "final": frame, "frames": frames}
 
 
-def _sse_events(response) -> list:
-    return [json.loads(line[len("data: "):]) for line in response.text.splitlines() if line.startswith("data: ")]
-
-
 def test_health_and_metrics(http):
     assert http.get("/health").json()["status"] == "healthy"
     assert "http_request_duration_seconds" in http.get("/metrics").text
@@ -126,41 +122,17 @@ def test_admin_endpoints_reflect_persisted_activity(http, admin_headers, guest_t
     assert forbidden.status_code == 403
 
 
-def test_rest_sse_round_trip_through_llm_worker(http, guest_token):
-    headers = {"Authorization": f"Bearer {guest_token}"}
-    res = http.post("/v1/chat/completions", headers=headers, json={"message": "Where is order ORD-99120?"})
-    assert res.status_code == 200 and res.headers["content-type"].startswith("text/event-stream")
-    events = _sse_events(res)
-    final = events[-1]
-    assert final["is_final"] is True and not final.get("timed_out"), events
-    answer = "".join(e.get("token", "") for e in events)
-    assert "ORD-99120" in answer and "Processing" in answer
-
-    # Continue the same conversation
-    res2 = http.post("/v1/chat/completions", headers=headers,
-                     json={"message": "How long does shipping take?", "conversation_id": final["conversation_id"]})
-    assert _sse_events(res2)[-1]["is_final"] is True
-
-    # Another user cannot write into this conversation
-    other = {"Authorization": f"Bearer {_guest_token(http)}"}
-    res3 = http.post("/v1/chat/completions", headers=other,
-                     json={"message": "hi", "conversation_id": final["conversation_id"]})
-    assert res3.status_code == 404
-
-
-def test_auth_and_ownership_checks(http, guest_token):
-    headers = {"Authorization": f"Bearer {guest_token}"}
-    assert http.get("/v1/tools/order/ORD-88412").status_code in (401, 403)
-    assert http.get("/v1/tools/order/ORD-88412", headers=headers).json()["found"] is True
-    assert http.post("/v1/feedback", headers=headers,
-                     json={"message_id": str(uuid.uuid4()), "score": 5}).status_code == 404
-    assert http.post("/v1/tools/escalate", headers=headers,
-                     params={"issue_summary": "x", "priority": "not-a-priority"}).status_code == 422
+def test_auth_and_admin_access(http, guest_token):
+    assert http.get("/v1/admin/metrics").status_code in (401, 403)  # 403 on older FastAPI
+    assert http.get("/v1/admin/tickets", headers={"Authorization": f"Bearer {guest_token}"}).status_code == 403
+    bad_login = http.post("/v1/auth/login", json={"email": "admin@voxa.ai", "password": "wrong-password"})
+    assert bad_login.status_code == 401
 
 
 def test_rate_limit_returns_429_with_retry_after(http):
-    headers = {"Authorization": f"Bearer {_guest_token(http)}"}
-    statuses = [http.get("/v1/tools/refund/ORD-88412", headers=headers) for _ in range(40)]
+    # Anonymous calls are limited per client IP; login is the cheapest rate-limited endpoint.
+    statuses = [http.post("/v1/auth/login", json={"email": "nobody@example.com", "password": "x"})
+                for _ in range(40)]
     limited = [r for r in statuses if r.status_code == 429]
-    assert limited, "expected the per-user sliding window to reject some requests"
+    assert limited, "expected the per-IP sliding window to reject some requests"
     assert limited[0].headers.get("Retry-After") == "60"

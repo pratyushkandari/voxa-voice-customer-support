@@ -52,9 +52,6 @@ class Settings(BaseSettings):
     WS_MAX_TEXT_QUERY_CHARS: int = 2000
     WS_MAX_AUDIO_CHUNK_B64_CHARS: int = 4_000_000  # ~3 MB of raw audio per utterance
 
-    # How long the REST SSE endpoint waits for the LLM worker before falling back
-    LLM_RESPONSE_TIMEOUT_SEC: float = 20.0
-
     # AI Models (answers are produced by a deterministic router; no generative model is used)
     STT_MODEL_SIZE: str = "base"
     TTS_VOICE: str = "en-US-AriaNeural"

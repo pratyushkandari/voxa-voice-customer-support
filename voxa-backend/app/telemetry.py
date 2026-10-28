@@ -23,12 +23,6 @@ HTTP_REQUEST_DURATION = Histogram(
     buckets=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 )
 
-LLM_TTFT_HISTOGRAM = Histogram(
-    "llm_time_to_first_token_seconds",
-    "Time to first token (TTFT) in seconds for LLM inference",
-    buckets=[0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0]
-)
-
 # Exposed as semantic_cache_hit_total / semantic_cache_miss_total
 SEMANTIC_CACHE_HITS = Counter(
     "semantic_cache_hit_total",

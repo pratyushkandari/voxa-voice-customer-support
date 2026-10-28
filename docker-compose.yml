@@ -3,12 +3,11 @@
 #   JWT_SECRET_KEY            stable signing key (unset => random per gateway start)
 #   SEED_ADMIN_PASSWORD       password for the seeded admin@voxa.ai account (first start only)
 #   POSTGRES_PASSWORD         database password (first start only: it is stored in the volume)
-#   GRAFANA_ADMIN_PASSWORD    Grafana admin password (default: admin)
 #   CORS_ALLOW_ORIGIN_REGEX   browser origins allowed to call the API (default: localhost)
 #   NEXT_PUBLIC_API_URL       gateway URL as seen by the BROWSER (baked into the frontend build)
 #
 # Only the frontend (3000) and the gateway (8088) are published on every interface.
-# PostgreSQL, Redis, Prometheus and Grafana are bound to 127.0.0.1 so a cloud VM never
+# PostgreSQL, Redis and Prometheus are bound to 127.0.0.1 so a cloud VM never
 # exposes them to the internet; reach them remotely through an SSH tunnel.
 services:
   # =======================================================
@@ -191,29 +190,9 @@ services:
     networks:
       - voxa-network
 
-  # =======================================================
-  # 8. Grafana SRE Live Dashboard
-  # =======================================================
-  grafana:
-    image: grafana/grafana:latest
-    container_name: voxa-grafana
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      - prometheus
-    networks:
-      - voxa-network
-
 volumes:
   postgres_data:
   redis_data:
-  grafana_data:
 
 networks:
   voxa-network:
