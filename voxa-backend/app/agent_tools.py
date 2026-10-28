@@ -11,7 +11,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,6 +144,7 @@ class RoutedQuery:
     facts: str = ""
     cacheable: bool = False  # user-independent knowledge answer, may go in the semantic cache
     cache_hit: bool = False
+    embedding: Optional[List[float]] = None  # the question's vector, reused to cache the reply
 
 
 async def _status_answer(order_id: str, db: AsyncSession, user_id: Optional[uuid.UUID]) -> RoutedQuery:
@@ -221,22 +222,27 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
             facts=f"Opened support ticket {ref}. A support specialist will contact the customer.",
         )
 
-    # 5. Everything else: semantic cache, then the knowledge base
-    cached = await rag_engine.check_semantic_cache(clean_query)
+    # 5. Everything else: semantic cache, then the knowledge base. Embedding the question
+    #    takes ~0.2 s on a small CPU, so it is done once and the vector reused for both
+    #    lookups and for caching the reply.
+    query_vec = await rag_engine.generate_embedding_async(clean_query)
+    cached = await rag_engine.check_semantic_cache(query_vec)
     if cached:
         return RoutedQuery(cached, cache_hit=True)
 
     async with AsyncSessionLocal() as db_session:
-        rag_docs = await rag_engine.search_knowledge_base(clean_query, db_session, limit=3)
+        rag_docs = await rag_engine.search_knowledge_base(query_vec, db_session, limit=3)
     passages = [doc for doc in rag_docs if doc.get("similarity", 0) > 0.35]
     if not passages:
         return RoutedQuery(
             GENERAL_HELP,
             facts=f"No help-centre article matches this message. What Voxa support can do: {GENERAL_HELP}",
             cacheable=True,
+            embedding=query_vec,
         )
     return RoutedQuery(
         fallback=f"From our {passages[0]['topic']} policy: {passages[0]['content']}",
         facts="\n\n".join(f"{doc['topic']}: {doc['content']}" for doc in passages),
         cacheable=True,
+        embedding=query_vec,
     )

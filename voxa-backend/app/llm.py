@@ -135,5 +135,5 @@ async def answer_query(raw_query: str, clean_query: str, user_id: Optional[uuid.
     routed = await route_query(raw_query, clean_query, user_id)
     answer = await write_reply(clean_query, routed, send)
     if routed.cacheable and not answer.fallback:
-        await rag_engine.store_semantic_cache(clean_query, answer.text)
+        await rag_engine.store_semantic_cache(clean_query, routed.embedding, answer.text)
     return answer
