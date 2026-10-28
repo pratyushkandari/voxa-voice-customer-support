@@ -9,7 +9,7 @@ Voxa is split into a gateway and a set of workers that talk through Redis:
 - The **gateway** (FastAPI) owns client connections and the conversation records. It serves the WebSocket used by the console and answers typed questions itself.
 - **Workers** handle the slow or CPU-heavy voice work: speech-to-text, answering transcripts, and text-to-speech. Each worker type is a Redis Streams consumer group, so it can be scaled on its own.
 - Worker results flow back over a per-session Redis Pub/Sub channel, so any gateway replica can deliver them to the right client.
-- **PostgreSQL with pgvector** stores users, orders, conversations, tickets and the knowledge base, including its embeddings.
+- **PostgreSQL with pgvector** stores users, orders, conversations, tickets and the knowledge base, including its embeddings. Its schema is versioned with Alembic. A one-off `migrate` container applies the migrations before the gateway and workers start, so replicas never race to change it.
 - **Gemini** (`gemini-3.6-flash` by default) writes replies from facts the code has already fetched.
 
 ```mermaid
