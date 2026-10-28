@@ -1,6 +1,7 @@
 """
-End-to-end tests against a RUNNING stack (gateway + PostgreSQL/pgvector + Redis + LLM
-worker), e.g. the one started by ``docker compose up``.
+End-to-end tests against a RUNNING stack (gateway, workers, PostgreSQL/pgvector and
+Redis), e.g. the one started by ``docker compose up``. They pass with or without
+GEMINI_API_KEY; the voice test needs the TTS worker's internet access for edge-tts.
 
 Skipped unless ``VOXA_E2E_BASE_URL`` is set:
 
@@ -9,16 +10,20 @@ Skipped unless ``VOXA_E2E_BASE_URL`` is set:
 Optional: ``VOXA_E2E_ADMIN_PASSWORD`` (defaults to the seeded demo password).
 These tests create guest users, conversations and tickets in the target database.
 """
+import base64
 import json
 import os
 import re
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
 
 BASE_URL = os.environ.get("VOXA_E2E_BASE_URL")
 ADMIN_PASSWORD = os.environ.get("VOXA_E2E_ADMIN_PASSWORD", "adminpassword123")
+# 16 kHz mono WAV of a speaker asking "Where is my order ORD-88412?"
+VOICE_FIXTURE = Path(__file__).parent / "fixtures" / "order_question.wav"
 
 pytestmark = pytest.mark.skipif(not BASE_URL, reason="set VOXA_E2E_BASE_URL to run end-to-end tests")
 
@@ -137,6 +142,27 @@ def test_auth_and_admin_access(http, guest_token):
     assert http.get("/v1/admin/tickets", headers={"Authorization": f"Bearer {guest_token}"}).status_code == 403
     bad_login = http.post("/v1/auth/login", json={"email": "admin@voxa.ai", "password": "wrong-password"})
     assert bad_login.status_code == 401
+
+
+def test_voice_round_trip(guest_token):
+    """A recorded question goes through Whisper, is answered and comes back as speech."""
+    from websockets.sync.client import connect
+
+    audio = base64.b64encode(VOICE_FIXTURE.read_bytes()).decode()
+    frames, tokens = {}, []
+    with connect(_ws_url(guest_token), max_size=None) as ws:
+        ws.send(json.dumps({"type": "audio_chunk", "audio_data": audio, "trace_id": f"e2e-{uuid.uuid4()}"}))
+        while "audio_response" not in frames:  # the spoken reply comes after the final token
+            frame = json.loads(ws.recv(timeout=90))
+            assert frame["type"] != "error", frame
+            frames.setdefault(frame["type"], frame)
+            if frame["type"] == "token_chunk":
+                tokens.append(frame.get("token", ""))
+
+    assert frames["ack"]["status"] == "queued_for_transcription"
+    assert "88412" in frames["transcript"]["text"]
+    assert "TRK-99281744US" in "".join(tokens)
+    assert len(base64.b64decode(frames["audio_response"]["audio_data"])) > 1000
 
 
 def test_rate_limit_returns_429_with_retry_after(http):

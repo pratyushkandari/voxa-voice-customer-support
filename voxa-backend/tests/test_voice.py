@@ -30,6 +30,21 @@ def test_stt_worker_sends_the_transcript_before_queueing_the_answer():
     asyncio.run(_test())
 
 
+def test_whisper_is_prompted_with_the_order_id_format():
+    """Without a prompt Whisper wrote a spoken 'ORD-88412' as 'or D88412', so no order was found."""
+    from unittest.mock import MagicMock
+
+    from workers.stt_worker import WHISPER_PROMPT
+
+    worker = STTWorker(load_model=False)
+    worker.model = MagicMock()
+    worker.model.transcribe.return_value = ([MagicMock(text=" Where is my order ORD-88412?")], None)
+
+    assert worker.transcribe_audio_bytes(b"RIFF") == "Where is my order ORD-88412?"
+    assert worker.model.transcribe.call_args.kwargs["initial_prompt"] == WHISPER_PROMPT
+    assert "ORD-" in WHISPER_PROMPT
+
+
 class ScriptedPubSub:
     """Delivers a fixed list of worker events, then stays subscribed like a real one."""
     def __init__(self, events):
