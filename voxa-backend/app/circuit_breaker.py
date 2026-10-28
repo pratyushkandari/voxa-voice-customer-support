@@ -11,8 +11,8 @@ logger = logging.getLogger("voxa.circuit_breaker")
 
 class DistributedCircuitBreaker:
     """
-    Distributed 3-state Circuit Breaker (Martin Fowler pattern) backed by Redis, so every
-    gateway replica observes the same state.
+    Distributed 3-state circuit breaker backed by Redis, so every gateway replica and LLM
+    worker sees the same state. It guards the Gemini calls (``app.llm``).
 
     States (stored at ``circuit:{service}:state``):
       - CLOSED: Requests execute normally. Outcomes are counted in a short window
@@ -42,7 +42,7 @@ class DistributedCircuitBreaker:
         self.window_sec = window_sec                # lifetime of the failure/total counters
         self.min_calls = min_calls                  # avoid tripping on 1 failure out of 1 call
 
-    async def get_state(self, service_name: str = "ai_worker") -> str:
+    async def get_state(self, service_name: str) -> str:
         """
         Retrieves the active breaker state, triggering auto-transition from OPEN to HALF_OPEN
         once the recovery cooldown expires.
@@ -64,7 +64,7 @@ class DistributedCircuitBreaker:
 
         return state
 
-    async def can_execute(self, service_name: str = "ai_worker") -> tuple[bool, str]:
+    async def can_execute(self, service_name: str) -> tuple[bool, str]:
         """
         Gating check for ingress requests.
         Returns:
@@ -109,13 +109,13 @@ class DistributedCircuitBreaker:
         await self.redis.expire(total_key, self.window_sec)
         return int(fails or 0), int(total or 0)
 
-    async def record_success(self, service_name: str = "ai_worker"):
+    async def record_success(self, service_name: str):
         try:
             await self._record_success(service_name)
         except RedisError as e:
             logger.warning(f"Could not record circuit breaker success: {e}")
 
-    async def record_failure(self, service_name: str = "ai_worker"):
+    async def record_failure(self, service_name: str):
         try:
             await self._record_failure(service_name)
         except RedisError as e:
@@ -160,14 +160,6 @@ class DistributedCircuitBreaker:
             # Trip the circuit to OPEN
             await self.redis.set(state_key, "OPEN")
             await self.redis.set(f"circuit:{service_name}:last_trip", str(time.time()))
-
-    def get_fallback_response(self) -> str:
-        return (
-            "⚠️ Voxa is currently experiencing unusually high demand. "
-            "Our automated AI inference cluster is self-protecting. "
-            "Please check our standard FAQs at https://support.voxa.ai/faq "
-            "or an agent will review your inquiry shortly."
-        )
 
 
 circuit_breaker = DistributedCircuitBreaker()

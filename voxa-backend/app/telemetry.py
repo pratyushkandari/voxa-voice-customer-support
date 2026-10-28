@@ -23,6 +23,19 @@ HTTP_REQUEST_DURATION = Histogram(
     buckets=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 )
 
+# Exposed as gemini_requests_total{outcome="ok"|"fallback"}
+GEMINI_REQUESTS = Counter(
+    "gemini_requests",
+    "Replies Gemini was asked to write, by outcome (fallback = the plain reply was sent instead)",
+    ["outcome"]
+)
+
+GEMINI_REQUEST_DURATION = Histogram(
+    "gemini_request_duration_seconds",
+    "Time from sending a request to Gemini until its reply finished streaming or failed",
+    buckets=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 10.0]
+)
+
 # Exposed as semantic_cache_hit_total / semantic_cache_miss_total
 SEMANTIC_CACHE_HITS = Counter(
     "semantic_cache_hit_total",

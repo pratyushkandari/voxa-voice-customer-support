@@ -7,3 +7,7 @@ scrape_configs:
     static_configs:
       - targets: ['gateway:8000']
     metrics_path: '/metrics'
+
+  - job_name: 'voxa-llm-worker'
+    static_configs:
+      - targets: ['llm-worker:9100']

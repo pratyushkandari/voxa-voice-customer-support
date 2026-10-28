@@ -3,8 +3,8 @@ Voxa FastAPI gateway: auth and admin REST endpoints, and the WebSocket the conso
 
 ``/v1/ws/stream`` accepts two kinds of frames:
 
-* ``text_query``: answered in-process by the intent router
-  (``app.agent_tools.answer_text_query``), streamed back and saved for signed-in users.
+* ``text_query``: answered in-process (``app.llm.answer_query``: the intent router picks
+  the facts, Gemini writes the reply), streamed back and saved for signed-in users.
 * ``audio_chunk``: base64 audio pushed to the STT stream. Worker events (tokens, TTS audio,
   errors) arrive on the Redis Pub/Sub channel ``token:stream:{session_id}`` and are
   forwarded to the socket.
@@ -22,7 +22,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent_tools import answer_text_query
 from app.auth import (
     create_access_token,
     create_guest_user,
@@ -31,10 +30,10 @@ from app.auth import (
     user_id_from_token,
     verify_password_async,
 )
-from app.circuit_breaker import circuit_breaker
 from app.config import settings
 from app.database import AsyncSessionLocal, engine, get_db, init_db
 from app.guardrails import sanitize_user_input
+from app.llm import answer_query
 from app.models import Conversation, Message, SupportTicket, User
 from app.queue_manager import queue_manager, session_channel
 from app.rag_engine import rag_engine
@@ -58,8 +57,6 @@ from app.telemetry import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.gateway")
 install_log_redaction()
-
-AI_SERVICE = "ai_worker"  # circuit-breaker key shared by every inference path
 
 
 @asynccontextmanager
@@ -181,8 +178,8 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
 
     Client -> server: ``{"type": "text_query", "text", "trace_id"?}`` or
                       ``{"type": "audio_chunk", "audio_data": <base64>, "trace_id"?}``.
-    Server -> client: ``token_chunk`` (streamed words, last has ``is_final``), ``ack``,
-                      ``audio_response`` (TTS, voice path only) and ``error`` frames.
+    Server -> client: ``token_chunk`` (the streamed reply; the last has ``is_final``),
+                      ``ack``, ``audio_response`` (voice only) and ``error`` frames.
 
     ``?token=<JWT>`` is optional: anonymous sessions work, but only authenticated
     sessions are persisted (conversations belong to a user) and attributed on tickets.
@@ -214,9 +211,32 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
 
     forwarder_task: Optional[asyncio.Task] = None
     active_conversation_id = None
+    conversation_lock = asyncio.Lock()
 
     async def send_error(message: str, trace_id: Optional[str] = None):
         await websocket.send_json({"type": "error", "message": message, "session_id": session_id, "trace_id": trace_id})
+
+    async def save_turn(question: str, reply: str, ttft_ms: Optional[int], total_latency_ms: Optional[int]):
+        """Saves one exchange. Signed-in sessions only: conversations.user_id is NOT NULL."""
+        nonlocal active_conversation_id
+        if authenticated_user_id is None:
+            return
+        try:
+            async with conversation_lock, AsyncSessionLocal() as db:
+                if not active_conversation_id:
+                    conversation = Conversation(user_id=authenticated_user_id, title=question[:40])
+                    db.add(conversation)
+                    await db.commit()
+                    await db.refresh(conversation)
+                    active_conversation_id = conversation.id
+                db.add_all([
+                    Message(conversation_id=active_conversation_id, sender="user", content=question),
+                    Message(conversation_id=active_conversation_id, sender="assistant", content=reply,
+                            ttft_ms=ttft_ms, total_latency_ms=total_latency_ms),
+                ])
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not save the conversation turn: {e}")
 
     try:
         try:
@@ -286,43 +306,29 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
                     continue
 
                 clean_query = sanitize_user_input(query)
+                first_token_ms: list[int] = []
 
-                # 1. Check Circuit Breaker (with probe gating)
-                can_proceed, cb_state = await circuit_breaker.can_execute(AI_SERVICE)
-                if not can_proceed:
+                async def send_token(token: str, trace_id: str = trace_id, start_time: float = start_time):
+                    if not first_token_ms:
+                        first_token_ms.append(int((time.time() - start_time) * 1000))
                     await websocket.send_json({
                         "type": "token_chunk",
-                        "token": circuit_breaker.get_fallback_response(),
-                        "is_final": True,
-                        "ttft_ms": int((time.time() - start_time) * 1000),
-                        "circuit_breaker": cb_state,
+                        "token": token,
+                        "is_final": False,
+                        "ttft_ms": first_token_ms[0],
                         "trace_id": trace_id
                     })
+
+                try:
+                    answer = await answer_query(query, clean_query, authenticated_user_id, send_token)
+                except WebSocketDisconnect:
+                    raise
+                except Exception as e:
+                    logger.error(f"[{trace_id}] Could not answer the question: {e}")
+                    await send_error("Sorry, something went wrong while answering. Please try again.", trace_id)
                     continue
 
-                cache_hit = False
-                try:
-                    response_text, cache_hit = await answer_text_query(query, clean_query, authenticated_user_id)
-                except Exception as worker_err:
-                    logger.error(f"[{trace_id}] Error executing agent query: {worker_err}")
-                    await circuit_breaker.record_failure(AI_SERVICE)
-                    response_text = "I encountered an unexpected issue while retrieving your inquiry. Our support team has been notified."
-                else:
-                    await circuit_breaker.record_success(AI_SERVICE)
-
-                # 2. Stream the answer word-by-word (paced so the UI renders progressively)
-                ttft_ms = int((time.time() - start_time) * 1000)
-                for word in response_text.split(" "):
-                    await websocket.send_json({
-                        "type": "token_chunk",
-                        "token": word + " ",
-                        "is_final": False,
-                        "ttft_ms": ttft_ms,
-                        "cache_hit": cache_hit,
-                        "trace_id": trace_id
-                    })
-                    await asyncio.sleep(0.03)
-
+                ttft_ms = first_token_ms[0] if first_token_ms else None
                 total_latency = int((time.time() - start_time) * 1000)
                 await websocket.send_json({
                     "type": "token_chunk",
@@ -330,37 +336,12 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
                     "is_final": True,
                     "ttft_ms": ttft_ms,
                     "total_latency_ms": total_latency,
-                    "cache_hit": cache_hit,
-                    "circuit_breaker": cb_state,
+                    "cache_hit": answer.cache_hit,
+                    "fallback": answer.fallback,
+                    "circuit_breaker": answer.breaker,
                     "trace_id": trace_id
                 })
-
-                # 3. Persist the exchange (authenticated sessions only: conversations are
-                #    owned by a user and conversations.user_id is NOT NULL).
-                if authenticated_user_id is None:
-                    continue
-                try:
-                    async with AsyncSessionLocal() as db_persist:
-                        if not active_conversation_id:
-                            conv = Conversation(user_id=authenticated_user_id, title=clean_query[:40])
-                            db_persist.add(conv)
-                            await db_persist.commit()
-                            await db_persist.refresh(conv)
-                            active_conversation_id = conv.id
-
-                        db_persist.add_all([
-                            Message(conversation_id=active_conversation_id, sender="user", content=clean_query),
-                            Message(
-                                conversation_id=active_conversation_id,
-                                sender="assistant",
-                                content=response_text,
-                                ttft_ms=ttft_ms,
-                                total_latency_ms=total_latency
-                            ),
-                        ])
-                        await db_persist.commit()
-                except Exception as persist_err:
-                    logger.warning(f"Could not persist WebSocket conversation to DB: {persist_err}")
+                await save_turn(clean_query, answer.text, ttft_ms, total_latency)
 
             else:
                 await send_error("Unsupported message type. Use 'text_query' or 'audio_chunk'.", trace_id)
