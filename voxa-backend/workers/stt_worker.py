@@ -1,7 +1,8 @@
 """
 STT worker: consumes base64 audio from ``stream:audio:transcribe`` (group ``stt_group``),
-transcribes it with Faster-Whisper (CTranslate2, INT8 on CPU) and forwards the text to
-``stream:llm:inference`` for the LLM worker.
+transcribes it with Faster-Whisper (CTranslate2, INT8 on CPU), publishes the transcript to
+the session's Pub/Sub channel and forwards it to ``stream:llm:inference`` for the LLM
+worker.
 
 Failure handling: a failed task is re-enqueued with ``retry_count + 1``; after 3 attempts
 it goes to the dead-letter queue. Messages stranded by a crashed worker are re-delivered
@@ -27,6 +28,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.stt_worker")
 
 MAX_ATTEMPTS = 3
+# Whisper writes a spoken "ORD-88412" as "or D88412" for some voices, which the router
+# cannot match. A prompt showing the ID format makes it write the ID as typed.
+WHISPER_PROMPT = "Customer support call about Voxa orders. Order IDs look like ORD-88412."
 
 
 class STTWorker:
@@ -64,7 +68,7 @@ class STTWorker:
             temp_audio.write(audio_bytes)
 
         try:
-            segments, _info = self.model.transcribe(temp_path, beam_size=2)
+            segments, _info = self.model.transcribe(temp_path, beam_size=2, initial_prompt=WHISPER_PROMPT)
             return " ".join(segment.text for segment in segments).strip()
         finally:
             try:
@@ -102,15 +106,18 @@ class STTWorker:
                     "trace_id": trace_id,
                 }))
             else:
-                # Forward transcribed query to the LLM stream with voice-pipeline flags
+                # Show the user what was heard, then hand the text to the LLM worker.
+                await redis.publish(session_channel(session_id), json.dumps({
+                    "type": "transcript",
+                    "text": text_result,
+                    "stt_latency_ms": stt_latency_ms,
+                    "trace_id": trace_id,
+                }))
                 await redis.xadd(settings.STREAM_LLM_INFERENCE, {
                     "session_id": session_id,
                     "user_id": payload.get("user_id", "guest"),
                     "prompt": text_result,
-                    "conversation_id": payload.get("conversation_id", ""),
                     "trace_id": trace_id,
-                    "stt_latency_ms": str(stt_latency_ms),
-                    "origin": "audio",
                     "needs_audio": "true",
                     "retry_count": "0"
                 }, maxlen=settings.STREAM_MAXLEN, approximate=True)

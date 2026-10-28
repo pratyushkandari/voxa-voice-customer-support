@@ -1,11 +1,15 @@
 """
-Deterministic support logic shared by the gateway (WebSocket text queries) and the LLM
-worker (REST SSE prompts and voice transcripts): the business tools (order lookup,
-refund eligibility, human escalation) and the priority-ordered intent router that calls
-them, so every channel gives the same answer to the same question.
+Support logic shared by the gateway (typed questions) and the LLM worker (voice
+transcripts): the business tools (order lookup, refund eligibility, human escalation) and
+the priority-ordered intent router that calls them.
+
+The router decides what data a question needs and fetches it, with the owner checks
+applied. It returns those facts for Gemini to phrase (``app.llm``) together with a plain
+reply built from the same facts, which is used whenever Gemini can't be.
 """
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -113,101 +117,112 @@ INJECTION_DB_KEYWORDS = ["delete the database", "drop table", "output the admin"
 ESCALATION_KEYWORDS = ["stole my money", "chargeback", "lawyer", "bank dispute", "scam", "fraud", "unacceptable"]
 
 
-async def answer_text_query(raw_query: str, clean_query: str, user_id: Optional[uuid.UUID]) -> tuple[str, bool]:
+GENERAL_HELP = (
+    "I can help with order status, refunds and returns, shipping, warranty and our products. "
+    "For an order, include its ID, for example ORD-88412."
+)
+INJECTION_REFUSAL = "I can't help with that request. " + GENERAL_HELP
+
+
+def ticket_reference(ticket_id: str) -> str:
+    """Short ticket reference, the same one the admin console shows."""
+    return f"#{ticket_id[:8]}"
+
+
+@dataclass
+class RoutedQuery:
     """
-    Deterministic, priority-ordered intent router: the single answering path for
-    WebSocket text queries (gateway), REST SSE prompts and voice transcripts (LLM worker).
+    What the router found for one question.
+
+    ``fallback`` is a complete reply built from the facts; it is sent whenever Gemini is
+    skipped or fails. ``facts`` is everything Gemini may use to write the reply. When it is
+    empty the fallback is the final answer (a blocked injection attempt or a cache hit).
+    """
+    fallback: str
+    facts: str = ""
+    cacheable: bool = False  # user-independent knowledge answer, may go in the semantic cache
+    cache_hit: bool = False
+
+
+async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.UUID]) -> RoutedQuery:
+    """
+    Priority-ordered intent router, shared by the gateway and the LLM worker.
 
     ``raw_query`` is the user's text before sanitising and is used only for injection
     detection; ``clean_query`` is the sanitised text used for everything else.
     ``user_id`` owns any ticket created and scopes order lookups (None = anonymous).
 
-    Returns ``(response_text, cache_hit)``. Only the generic policy branch (last) reads
-    from or writes to the shared semantic cache; order lookups and tickets never do.
-    Raises on infrastructure errors so the caller can feed the circuit breaker.
+    Only the knowledge-base branch (last) reads the shared semantic cache or is marked
+    cacheable; order lookups and tickets are user-specific. Raises on database errors.
     """
     prompt_lower = clean_query.lower()
     order_match = ORDER_ID_PATTERN.search(clean_query)
 
-    # Priority 1: Security Injection (checked on the raw text: the sanitised copy has
-    # already had the injection phrase replaced by a placeholder)
+    # 1. Prompt injection, checked on the raw text: the sanitised copy has already had
+    #    the injection phrase replaced by a placeholder. Never forwarded to Gemini.
     if detect_prompt_injection(raw_query) or any(k in prompt_lower for k in INJECTION_DB_KEYWORDS):
-        return "🛡️ **Voxa Security Guardrail Activated:** System prompt injection and unauthorized database operations have been intercepted and neutralized. I am restricted to authentic customer service and order tracking.", False
+        return RoutedQuery(INJECTION_REFUSAL)
 
-    # Priority 2: Chargeback / Anger / Supervisor Escalation (word boundaries so 'issue' does not match 'sue')
+    # 2. Chargeback or legal threats (word boundaries so 'issue' does not match 'sue')
     if any(k in prompt_lower for k in ESCALATION_KEYWORDS) or re.search(r'\b(sue|suing|lawsuit)\b', prompt_lower):
         async with AsyncSessionLocal() as db_session:
             tool_result = await escalate_to_human(clean_query, "urgent", user_id, db_session)
-        return f"🚨 **Urgent Priority Escalation:** I sincerely apologize for the distress. I have generated Urgent Support Ticket **#{tool_result['ticket_id']}** directly to our Senior Customer Resolution Lead. A supervisor is reviewing your billing history right now to ensure a complete resolution or instant refund.", False
+        ref = ticket_reference(tool_result["ticket_id"])
+        return RoutedQuery(
+            fallback=f"I'm sorry about this. I've opened urgent ticket {ref} and a support lead will contact you.",
+            facts=f"Opened urgent support ticket {ref} for this complaint. A support lead will contact the customer.",
+        )
 
-    # Priority 3: B2B Enterprise / Corporate Invoicing
-    if (any(k in prompt_lower for k in ["team of", "developers", "corporate", "bulk", "procurement", "enterprise"])
-            and any(k in prompt_lower for k in ["units", "buy", "order", "invoic", "purchase"])):
-        return "🏢 **Voxa Enterprise Desk:** For bulk orders (20+ units of Studio Headphones or Earbuds Pro):\n• **Volume Discount**: 20%–25% off.\n• **Payment Terms**: Net-30 enterprise invoicing & VAT/GST receipts.\n• **SLA**: 2-year enterprise warranty.\nI have registered Corporate Lead **#CORP-5091** for a formal quotation today.", False
-
-    # Priority 4: International Customs Duty & VAT Taxes (word boundary so 'private' does not match 'vat')
-    if (re.search(r'\bvat\b', prompt_lower) or any(k in prompt_lower for k in ["customs", "duty", "import tax"])
-            or (any(k in prompt_lower for k in ["uk", "canada", "india", "europe", "international"]) and "ship" in prompt_lower)):
-        return "🌍 **International Customs & Duty (DDP Delivery):** All Voxa international orders are shipped **Delivered Duty Paid (DDP)**. Local VAT and import duties are collected upfront during checkout with zero surprise doorstep fees. Air transit takes 7–14 business days with live GPS tracking.", False
-
-    # Priority 5: Bluetooth Multipoint Dual-Device Pairing
-    if ("multipoint" in prompt_lower
-            or ("simultaneously" in prompt_lower and ("connect" in prompt_lower or "pair" in prompt_lower))
-            or (("both" in prompt_lower or "two" in prompt_lower) and ("iphone" in prompt_lower or "pc" in prompt_lower or "devices" in prompt_lower))):
-        return "📶 **Bluetooth 5.3 Multipoint Dual-Device Pairing:** Yes! Voxa Earbuds Pro & Studio Headphones support Multipoint Connection to pair with 2 devices simultaneously (iPhone + PC). Connect to your phone first, put earbuds into pairing mode (hold case 3s), and select 'Voxa Audio' on your PC. Audio will switch automatically on incoming calls!", False
-
-    # Priority 6: Out-of-Warranty / Water Damage (word boundary so 'waterfall' does not match)
-    if re.search(r'\b(pool|submerged|water|dropped in)\b', prompt_lower) or ("14 months" in prompt_lower or "2 years" in prompt_lower):
-        return "💧 **Warranty & Out-of-Warranty Replacement:** The 1-Year Manufacturer Warranty covers craftsmanship up to 12 months. Prolonged pool submersion or usage beyond 12 months falls outside standard warranty, but we offer an **Out-of-Warranty Replacement at 35% OFF**! Share your purchase email to claim your voucher.", False
-
-    # Priority 7: Price Match Protection
-    if any(k in prompt_lower for k in ["price match", "sale today", "cheaper today", "price drop", "refund the difference"]):
-        return "🏷️ **14-Day Price Protection:** Yes! Under Voxa's Price Protection Policy, if an item you purchased goes on sale within 14 days of your order, you receive a full refund of the price difference. The difference will be credited to your card in 3–5 business days.", False
-
-    # Priority 8: Delivery Discrepancy (Delivered but Missing)
-    if "delivered" in prompt_lower and any(k in prompt_lower for k in ["not", "never", "haven", "didn", "missing", "where"]):
-        return "📦 **Package Marked Delivered But Not Received:** 1. Check with household members, reception, or neighbors. 2. Couriers occasionally scan packages up to 24 hours prior to physical delivery. 3. If not received after 24 hours, provide your Order ID (e.g. ORD-88412) and we will dispatch an immediate free replacement!", False
-
-    # Priority 9: Product Buying Advice
-    if (("headphone" in prompt_lower and ("earphone" in prompt_lower or "earbud" in prompt_lower))
-            or any(k in prompt_lower for k in ["which should i buy", "what should i order", "what should i buy", "which is better", "recommend", "buying advice", "compare"])):
-        return "🎧 **Voxa Product Buying Guide:**\n• **Wireless Earbuds Pro ($149)**: Best for workouts, running, pocket mobility (IPX7 water resistant, 32h battery).\n• **Smart Studio Headphones ($249)**: Best for deep immersion, 42dB Active Noise Cancellation, audiophile sound, and office focus.\n👉 Pick **Earbuds** for portability, or **Headphones** for superior ANC sound isolation!", False
-
-    # Priority 10: SQL Database Order Lookup & Refund (never cached: user-specific data)
+    # 3. Order status and refund eligibility
     if order_match:
         order_id = f"ORD-{order_match.group(1)}"
         async with AsyncSessionLocal() as db_session:
             if "refund" in prompt_lower or "return" in prompt_lower:
                 tool_result = await check_refund_eligibility(order_id, db_session, user_id)
-                if tool_result.get("found"):
-                    status_str = "Eligible for full refund" if tool_result.get("eligible") else "Ineligible for refund"
-                    return f"📦 **Order {tool_result.get('order_id')}**: {status_str} ({tool_result.get('reason')}).", False
-                return tool_result.get("message", f"Order {order_id} not found."), False
+                if not tool_result["found"]:
+                    return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
+                verdict = "is eligible" if tool_result["eligible"] else "is not eligible"
+                return RoutedQuery(
+                    fallback=f"Order {tool_result['order_id']} {verdict} for a refund: {tool_result['reason']}",
+                    facts=(f"Order {tool_result['order_id']} was bought {tool_result['days_since_purchase']} days ago. "
+                           f"Refunds are allowed within 30 days of purchase, so it {verdict} for a refund."),
+                )
             tool_result = await lookup_order(order_id, db_session, user_id)
-            if tool_result.get("found"):
-                return f"📦 **Order {tool_result.get('order_id')} ({tool_result.get('item_name')})**: Currently **{tool_result.get('status')}**. Tracking number: `{tool_result.get('tracking_number')}`.", False
-            return tool_result.get("message", f"Order {order_id} not found."), False
+        if not tool_result["found"]:
+            return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
+        return RoutedQuery(
+            fallback=(f"Order {tool_result['order_id']} ({tool_result['item_name']}) is {tool_result['status']}. "
+                      f"Tracking number: {tool_result['tracking_number']}."),
+            facts=(f"Order {tool_result['order_id']}: {tool_result['item_name']}, ordered {tool_result['order_date'][:10]}, "
+                   f"status {tool_result['status']}, tracking number {tool_result['tracking_number']}."),
+        )
 
-    # Priority 11: Human Agent Escalation
+    # 4. Request for a person
     if re.search(r'\b(human|agent|manager|escalat\w*|representative|talk to someone)\b', prompt_lower):
         async with AsyncSessionLocal() as db_session:
             tool_result = await escalate_to_human(clean_query, "urgent", user_id, db_session)
-        return f"👤 **Live Human Specialist Transfer:** I have generated Priority Support Ticket **#{tool_result['ticket_id']}** in our system. A Tier-2 Senior Customer Support Specialist has received your inquiry and will connect with you within moments!", False
+        ref = ticket_reference(tool_result["ticket_id"])
+        return RoutedQuery(
+            fallback=f"I've opened ticket {ref} and a support specialist will contact you.",
+            facts=f"Opened support ticket {ref}. A support specialist will contact the customer.",
+        )
 
-    # Priority 11.5: Greetings
-    if re.search(r'\b(hi|hello|hey|greetings|who are you|what can you do|how are you|how are u)\b', prompt_lower):
-        return "👋 **Hello! I am Voxa 2.0**, your real-time voice and support assistant.\n\nI can help you with:\n• 📦 **Live Order Tracking** (e.g. `ORD-88412`)\n• 💸 **Refund Calculations & Returns**\n• 🎧 **Product Buying Advice** (Earbuds vs Headphones)\n• 🌍 **Customs & International Shipping**\n• 📶 **Bluetooth Multipoint Setup**\n• 🏢 **B2B Bulk Corporate Invoicing**\n\nHow can I help you today? (You can type or speak via your microphone!)", False
-
-    # Priority 12: General RAG Knowledge Base Search (the only branch that uses the semantic cache)
+    # 5. Everything else: semantic cache, then the knowledge base
     cached = await rag_engine.check_semantic_cache(clean_query)
     if cached:
-        return cached, True
+        return RoutedQuery(cached, cache_hit=True)
 
     async with AsyncSessionLocal() as db_session:
-        rag_docs = await rag_engine.search_knowledge_base(clean_query, db_session, limit=2)
-    if rag_docs and rag_docs[0].get("similarity", 0) > 0.35:
-        response_text = f"Based on Voxa's {rag_docs[0]['topic']} policy: {rag_docs[0]['content']}"
-    else:
-        response_text = "Thank you for contacting Voxa! All purchases include a 30-day money-back guarantee and 1-year warranty. Domestic shipping delivers in 3–5 business days. Please provide your order ID (e.g. ORD-88412) for live tracking!"
-    await rag_engine.store_semantic_cache(clean_query, response_text)
-    return response_text, False
+        rag_docs = await rag_engine.search_knowledge_base(clean_query, db_session, limit=3)
+    passages = [doc for doc in rag_docs if doc.get("similarity", 0) > 0.35]
+    if not passages:
+        return RoutedQuery(
+            GENERAL_HELP,
+            facts=f"No help-centre article matches this message. What Voxa support can do: {GENERAL_HELP}",
+            cacheable=True,
+        )
+    return RoutedQuery(
+        fallback=f"From our {passages[0]['topic']} policy: {passages[0]['content']}",
+        facts="\n\n".join(f"{doc['topic']}: {doc['content']}" for doc in passages),
+        cacheable=True,
+    )

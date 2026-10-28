@@ -1,13 +1,13 @@
 """
-LLM ("reasoning") worker: consumes prompts from ``stream:llm:inference`` (group
-``llm_group``), produces an answer and streams it word-by-word to the session's Pub/Sub
-channel ``token:stream:{session_id}``. Voice-originated prompts are also forwarded to
-the TTS stream.
+LLM worker: consumes voice transcripts from ``stream:llm:inference`` (group
+``llm_group``), answers them and streams the reply to the session's Pub/Sub channel
+``token:stream:{session_id}``, then hands the full reply to the TTS stream.
 
-Answer generation is deterministic: prompts go through ``answer_text_query``, the same
-priority-ordered router the gateway uses for WebSocket text queries (guardrails, tools
-against PostgreSQL, canned policies, semantic cache, pgvector knowledge base), so REST,
-voice and console users get identical answers. No generative model is involved.
+Answers come from ``app.llm.answer_query``, the same path the gateway uses for typed
+questions: the intent router picks the facts and Gemini writes the reply, with the
+router's plain reply as the fallback.
+
+Prometheus metrics (Gemini outcome and latency, cache hits) are served on port 9100.
 """
 import asyncio
 import json
@@ -17,9 +17,10 @@ import uuid
 from typing import List, Optional, Tuple
 
 import redis.asyncio as aioredis
+from prometheus_client import start_http_server
 
-from app.agent_tools import answer_text_query
 from app.config import settings
+from app.llm import Answer, Send, answer_query
 from app.queue_manager import keep_claimed, session_channel
 from app.rag_engine import rag_engine
 
@@ -27,6 +28,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.llm_worker")
 
 MAX_ATTEMPTS = 3
+METRICS_PORT = 9100
 
 
 class LLMWorker:
@@ -37,7 +39,7 @@ class LLMWorker:
         self.group_name = "llm_group"
         self.batch_window_ms = 15  # XREADGROUP block time used to coalesce a micro-batch
         self.max_batch_size = 8
-        logger.info(f"LLM worker {self.worker_id} initialised (deterministic router + pgvector RAG)")
+        logger.info(f"LLM worker {self.worker_id} initialised (model {settings.GEMINI_MODEL})")
 
     async def emit_heartbeat(self, redis: aioredis.Redis):
         while True:
@@ -47,10 +49,10 @@ class LLMWorker:
                 logger.error(f"Heartbeat emission failed: {e}")
             await asyncio.sleep(5)
 
-    async def generate_response(self, prompt: str, user_id: Optional[str]) -> Tuple[str, bool]:
+    async def generate_response(self, prompt: str, user_id: Optional[str], send: Send) -> Answer:
         """
-        Answers an already-sanitised prompt (the gateway and the STT worker sanitise at
-        ingress) with the shared router; returns ``(text, cache_hit)``.
+        Answers an already-sanitised transcript (the STT worker sanitises it) and streams
+        the reply through ``send``.
         """
         parsed_uid = None
         if user_id and user_id != "guest":
@@ -58,7 +60,7 @@ class LLMWorker:
                 parsed_uid = uuid.UUID(str(user_id))
             except (ValueError, TypeError):
                 parsed_uid = None
-        return await answer_text_query(prompt, prompt, parsed_uid)
+        return await answer_query(prompt, prompt, parsed_uid, send)
 
     async def process_message(self, msg_id: str, payload: dict, redis: aioredis.Redis):
         """Handles one task end-to-end. Never raises: failures are retried, then DLQ'd."""
@@ -67,9 +69,21 @@ class LLMWorker:
         retry_count = int(payload.get("retry_count", 0))
         channel = session_channel(session_id)
         start_time = time.time()
+        first_token_ms: list[int] = []
+
+        async def publish_token(token: str):
+            if not first_token_ms:
+                first_token_ms.append(int((time.time() - start_time) * 1000))
+            await redis.publish(channel, json.dumps({
+                "type": "token_chunk",
+                "token": token,
+                "is_final": False,
+                "ttft_ms": first_token_ms[0],
+                "trace_id": trace_id
+            }))
 
         try:
-            response_text, cache_hit = await self.generate_response(payload.get("prompt", ""), payload.get("user_id"))
+            answer = await self.generate_response(payload.get("prompt", ""), payload.get("user_id"), publish_token)
         except Exception as e:
             logger.error(f"[{trace_id}] Task {msg_id} failed (attempt {retry_count + 1}): {e}")
             if retry_count + 1 >= MAX_ATTEMPTS:
@@ -87,55 +101,44 @@ class LLMWorker:
             await redis.xack(self.stream_name, self.group_name, msg_id)
             return
 
-        # Voice pipeline: ask the TTS worker to synthesise the answer
-        if payload.get("origin") == "audio" or payload.get("needs_audio") == "true":
+        await redis.publish(channel, json.dumps({
+            "type": "token_chunk",
+            "token": "",
+            "is_final": True,
+            "ttft_ms": first_token_ms[0] if first_token_ms else None,
+            "total_latency_ms": int((time.time() - start_time) * 1000),
+            "cache_hit": answer.cache_hit,
+            "fallback": answer.fallback,
+            "circuit_breaker": answer.breaker,
+            "trace_id": trace_id
+        }))
+
+        # Voice pipeline: ask the TTS worker to speak the reply
+        if payload.get("needs_audio") == "true":
             try:
                 await redis.xadd(settings.STREAM_TTS_SYNTHESIS, {
                     "session_id": session_id,
-                    "text": response_text,
+                    "text": answer.text,
                     "trace_id": trace_id
                 }, maxlen=settings.STREAM_MAXLEN, approximate=True)
             except Exception as tts_err:
                 logger.warning(f"Could not enqueue TTS synthesis task: {tts_err}")
 
-        # Stream tokens to Redis Pub/Sub (the gateway relays them to the client)
-        ttft_ms = int((time.time() - start_time) * 1000)
-        for token in response_text.split(" "):
-            await redis.publish(channel, json.dumps({
-                "type": "token_chunk",
-                "token": token + " ",
-                "is_final": False,
-                "ttft_ms": ttft_ms,
-                "cache_hit": cache_hit,
-                "trace_id": trace_id
-            }))
-            await asyncio.sleep(0.03)
-
-        await redis.publish(channel, json.dumps({
-            "type": "token_chunk",
-            "token": "",
-            "is_final": True,
-            "ttft_ms": ttft_ms,
-            "total_latency_ms": int((time.time() - start_time) * 1000),
-            "cache_hit": cache_hit,
-            "trace_id": trace_id
-        }))
-
         await redis.xack(self.stream_name, self.group_name, msg_id)
 
     async def process_batch(self, batch: List[Tuple[str, dict]], redis: aioredis.Redis):
         """
-        Processes a micro-batch (up to max_batch_size tasks) sequentially, in arrival order.
-        Entries still waiting their turn are kept claimed so the supervisor does not mistake
-        them for stranded work and enqueue duplicates.
+        Answers a micro-batch (up to max_batch_size tasks) concurrently: each answer mostly
+        waits on Gemini, so answering them one by one would make the last caller wait for
+        all the others. The entries are kept claimed while they run so the supervisor does
+        not mistake them for stranded work and enqueue duplicates.
         """
         logger.info(f"Processing batch of {len(batch)} tasks")
         claim_task = asyncio.create_task(
             keep_claimed(redis, self.stream_name, self.group_name, self.worker_id, [m for m, _ in batch])
         )
         try:
-            for msg_id, payload in batch:
-                await self.process_message(msg_id, payload, redis)
+            await asyncio.gather(*(self.process_message(msg_id, payload, redis) for msg_id, payload in batch))
         finally:
             claim_task.cancel()
 
@@ -191,5 +194,6 @@ class LLMWorker:
 
 
 if __name__ == "__main__":
+    start_http_server(METRICS_PORT)
     worker = LLMWorker()
     asyncio.run(worker.run())

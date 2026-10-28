@@ -41,8 +41,3 @@ def test_circuit_breaker_recovery_and_success():
         cb.redis.delete.assert_any_call("circuit:test_service:total")
 
     asyncio.run(_test())
-
-def test_circuit_breaker_fallback_message():
-    cb = DistributedCircuitBreaker(redis_url="redis://localhost:6379/0")
-    msg = cb.get_fallback_response()
-    assert "Voxa is currently experiencing unusually high demand" in msg

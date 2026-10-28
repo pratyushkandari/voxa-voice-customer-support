@@ -7,72 +7,89 @@ How to diagnose and fix the common problems in a Voxa deployment run with `docke
 | What | Target | Where to look |
 | --- | --- | --- |
 | Availability | 99.9% over 30 days | gateway `/health` |
-| Time to first token (p95) | ≤ 180 ms | `llm_time_to_first_token_seconds`, per-answer `ttft_ms` |
+| Time to first token (p95) | ≤ 6 s (Gemini replies measured 2.4–5.7 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
+| Gemini fallback rate | ≤ 5% | `gemini_requests_total{outcome="fallback"}` |
 | End-to-end latency (p95) | tracked, no target yet | `p95_latency_ms` in `/v1/admin/metrics` |
 | Queue backlog | ≤ 100 tasks | `queue_depth` in `/v1/admin/metrics` (pending + lag) |
-| Circuit breaker | `CLOSED` | Redis key `circuit:ai_worker:state` |
+| Circuit breaker | `CLOSED` | Redis key `circuit:gemini:state` |
 
-## Queue backlog growing
+## Replies show "Fallback"
 
-**Symptoms:** `queue_depth` keeps rising in the admin console, and voice or REST answers slow down or time out.
+**Symptoms:** replies are short and plain, the console shows a "Fallback" badge, and the fallback rate rises.
 
-1. Look at each consumer group:
+1. Check the breaker and its counters:
    ```bash
-   redis-cli XINFO GROUPS stream:audio:transcribe
-   redis-cli XINFO GROUPS stream:llm:inference
-   redis-cli XPENDING stream:llm:inference llm_group
+   redis-cli MGET circuit:gemini:state circuit:gemini:failures circuit:gemini:total
    ```
-2. Check the workers are alive (heartbeat keys expire after 10 s) and not starved of CPU or memory:
+2. Find the cause in the logs (`Gemini reply failed, sending the fallback reply: <error>`):
    ```bash
-   redis-cli --scan --pattern 'worker:heartbeat:*'
-   docker stats voxa-stt-worker voxa-llm-worker
+   docker logs --since 10m voxa-gateway | grep "Gemini reply failed"
+   docker logs --since 10m voxa-llm-worker | grep "Gemini reply failed"
    ```
-3. Add workers. Compose can't scale a service that has a fixed `container_name`, so remove that line from the service first, then:
+   - `ClientError: 429 RESOURCE_EXHAUSTED`: the quota is used up. The error's `quotaId` says which limit:
+     - `...PerMinute...` clears within a minute.
+     - `...PerDay...` resets at midnight Pacific time.
+     - Free-tier keys were limited to 5 requests a minute and 20 a day per model on 2026-10-28.
+     - Wait, point `GEMINI_MODEL` at another model (each has its own quota), or enable billing on the key's project.
+   - `ClientError: 400` / `403`: a bad key or model name. Check `GEMINI_API_KEY` and `GEMINI_MODEL` in `.env`, then `docker compose up -d gateway llm-worker`.
+   - `TimeoutError`: Gemini took longer than 10 s. Check the Gemini status page and `gemini_request_duration_seconds`.
+3. If every reply is a fallback and there are no errors in the logs, the key isn't set:
    ```bash
-   docker compose up -d --scale stt-worker=3 --scale llm-worker=3
+   docker exec voxa-gateway python -c "from app.config import settings; print(bool(settings.GEMINI_API_KEY))"
    ```
-4. Entries stuck in a pending list are reclaimed by `voxa-worker-supervisor` once they've been idle for 15 s, so make sure it's running (`docker logs voxa-worker-supervisor`). To see what was dead-lettered:
+4. The breaker moves to `HALF_OPEN` 15 s after it trips and closes after one successful probe. To probe right away:
    ```bash
-   redis-cli XRANGE stream:dead:letter:queue - + COUNT 10
-   ```
-
-## Circuit breaker open
-
-**Symptoms:** users get the "experiencing unusually high demand" fallback, and final WebSocket frames report `"circuit_breaker": "OPEN"`.
-
-1. Check the breaker state and its counters:
-   ```bash
-   redis-cli MGET circuit:ai_worker:state circuit:ai_worker:failures circuit:ai_worker:total
-   ```
-2. Find the errors behind the trips (`Error executing agent query` or `LLM dispatch/relay failed`):
-   ```bash
-   docker logs --since 10m voxa-gateway | grep -iE "error|failed"
-   ```
-3. Check the dependencies:
-   ```bash
-   docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
-   docker exec -it voxa-redis redis-cli INFO memory
-   docker logs --since 10m voxa-llm-worker
-   ```
-4. Fix whatever is failing, e.g. restart the LLM worker or bring PostgreSQL back. The breaker moves to `HALF_OPEN` 15 s after it trips and closes after one successful probe. To probe right away:
-   ```bash
-   redis-cli SET circuit:ai_worker:state HALF_OPEN
+   redis-cli SET circuit:gemini:state HALF_OPEN
    ```
 
 If final frames report `"circuit_breaker": "UNKNOWN"`, Redis itself is unreachable. The breaker and the rate limiter are letting requests through, and the gateway logs `Circuit breaker state unavailable` / `Rate limiter unavailable`. Restore Redis first.
 
+## Answers fail with an error
+
+**Symptoms:** typed questions get "Sorry, something went wrong while answering".
+
+The router couldn't fetch its facts, which almost always means PostgreSQL:
+
+```bash
+docker logs --since 10m voxa-gateway | grep "Could not answer"
+docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
+```
+
+## Voice requests hang or fail
+
+**Symptoms:** a voice message stays at "Transcribing…", or no spoken reply arrives.
+
+1. Check the queues and workers (heartbeat keys expire after 10 s):
+   ```bash
+   redis-cli XINFO GROUPS stream:audio:transcribe
+   redis-cli XINFO GROUPS stream:llm:inference
+   redis-cli --scan --pattern 'worker:heartbeat:*'
+   docker stats voxa-stt-worker voxa-llm-worker
+   ```
+2. No transcript: check `docker logs voxa-stt-worker` for `Transcribed session` lines or FFmpeg decode errors.
+3. Text but no audio: the TTS worker needs outbound internet access for edge-tts. Check `docker logs voxa-tts-worker` for `TTS synthesis failed`.
+4. Add workers. Compose can't scale a service that has a fixed `container_name`, so remove that line from the service first, then:
+   ```bash
+   docker compose up -d --scale stt-worker=3 --scale llm-worker=3
+   ```
+5. Entries stuck in a pending list are reclaimed by `voxa-worker-supervisor` once they've been idle for 15 s, so make sure it's running (`docker logs voxa-worker-supervisor`). To see what was dead-lettered:
+   ```bash
+   redis-cli XRANGE stream:dead:letter:queue - + COUNT 10
+   ```
+
 ## Latency getting worse
 
-**Symptoms:** `http_request_duration_seconds` or `llm_time_to_first_token_seconds` move into higher buckets, and TTFT rises in the console.
+**Symptoms:** TTFT rises in the console, or `gemini_request_duration_seconds` moves into higher buckets.
 
-1. Check the semantic cache hit rate:
+1. Split Gemini time from everything else:
    ```promql
-   rate(semantic_cache_hit_total[5m])
-     / (rate(semantic_cache_hit_total[5m]) + rate(semantic_cache_miss_total[5m]))
-   ```
-2. Check latency per route:
-   ```promql
+   histogram_quantile(0.95, sum by (le) (rate(gemini_request_duration_seconds_bucket[5m])))
    histogram_quantile(0.95, sum by (le, endpoint) (rate(http_request_duration_seconds_bucket[5m])))
+   ```
+2. Check the semantic cache hit rate. Every hit is a Gemini call saved:
+   ```promql
+   sum(rate(semantic_cache_hit_total[5m]))
+     / (sum(rate(semantic_cache_hit_total[5m])) + sum(rate(semantic_cache_miss_total[5m])))
    ```
 3. Look for CPU throttling on the gateway (it computes embeddings) and on the STT workers.
 4. Confirm the STT worker logged `Loading Faster-Whisper [...] with INT8 quantization` at start-up.
@@ -80,17 +97,18 @@ If final frames report `"circuit_breaker": "UNKNOWN"`, Redis itself is unreachab
 
 ## Backups, secrets and deployment
 
-- **Backups:** run `pg_dump` on `voxa_db` regularly (or snapshot the `postgres_data` volume). Redis only holds short-lived state (streams, cache, rate limits) and has AOF turned on.
-- **Secrets:** set `JWT_SECRET_KEY` (the same value on every gateway replica) and `SEED_ADMIN_PASSWORD` before exposing the stack. On Kubernetes, create the `voxa-secrets` Secret separately (see `k8s/configmap-secrets.yaml`). Changing `JWT_SECRET_KEY` invalidates every token already issued.
+- **Backups:** run `pg_dump` on `voxa_db` regularly (or snapshot the `postgres_data` volume). Redis only holds short-lived state (streams, cache, rate limits, breaker) and has AOF turned on.
+- **Secrets:**
+  - Set `JWT_SECRET_KEY` (the same value on every gateway replica), `SEED_ADMIN_PASSWORD` and `GEMINI_API_KEY` in the root `.env` before exposing the stack, and never commit that file.
+  - Changing `JWT_SECRET_KEY` invalidates every token already issued.
 - **Admin password:** `SEED_ADMIN_PASSWORD` only applies when `admin@voxa.ai` is first created. To change the password later:
   ```bash
   HASH=$(docker exec voxa-gateway python -c "from app.auth import get_password_hash; print(get_password_hash('<new-password>'))")
   docker exec -i voxa-postgres psql -U postgres -d voxa_db -c "UPDATE users SET hashed_password='$HASH' WHERE email='admin@voxa.ai';"
   ```
-- **Network exposure:** Compose publishes only the frontend (3000) and the gateway (8088). PostgreSQL, Redis, Prometheus and Grafana listen on `127.0.0.1`. On a cloud VM, reach them through an SSH tunnel and keep those ports closed in the firewall.
-- **Kubernetes rollout:**
-  ```bash
-  kubectl apply -f voxa-backend/k8s/
-  kubectl rollout status deployment/voxa-gateway
-  ```
-  The HPA keeps between 2 and 10 `voxa-llm-worker` replicas and scales up at 75% average CPU.
+- **Network exposure:**
+  - Compose publishes only the frontend (3000) and the gateway (8088).
+  - PostgreSQL, Redis and Prometheus listen on `127.0.0.1`, and the LLM worker's metrics port is only reachable on the Compose network.
+  - On a cloud VM, reach them through an SSH tunnel and keep those ports closed in the firewall.
+  - Voice input on a public address needs HTTPS in front of the frontend and gateway.
+- **Upgrading:** `git pull` then `docker compose up --build -d`. New knowledge-base documents are added on gateway start; existing rows are left alone.

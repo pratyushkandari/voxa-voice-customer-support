@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock
 from app.circuit_breaker import DistributedCircuitBreaker
 from workers.worker_supervisor import WorkerSupervisor
 
+from tests.fakes import DummySession
+
 def test_circuit_breaker_probe_gating():
     async def _test():
         cb = DistributedCircuitBreaker()
@@ -10,27 +12,27 @@ def test_circuit_breaker_probe_gating():
         
         # Test CLOSED state
         cb.redis.get = AsyncMock(return_value="CLOSED")
-        allowed, state = await cb.can_execute("ai_worker")
+        allowed, state = await cb.can_execute("gemini")
         assert allowed is True
         assert state == "CLOSED"
 
         # Test OPEN state before recovery timeout
         cb.redis.get = AsyncMock(side_effect=["OPEN", "9999999999"]) # last trip in the future
-        allowed, state = await cb.can_execute("ai_worker")
+        allowed, state = await cb.can_execute("gemini")
         assert allowed is False
         assert state == "OPEN"
 
         # Test HALF_OPEN probe gating (first probe acquired lock)
         cb.redis.get = AsyncMock(return_value="HALF_OPEN")
         cb.redis.set = AsyncMock(return_value=True) # lock acquired
-        allowed, state = await cb.can_execute("ai_worker")
+        allowed, state = await cb.can_execute("gemini")
         assert allowed is True
         assert state == "HALF_OPEN"
-        cb.redis.set.assert_called_with("circuit:ai_worker:probe_lock", "1", nx=True, ex=10)
+        cb.redis.set.assert_called_with("circuit:gemini:probe_lock", "1", nx=True, ex=10)
 
         # Second concurrent probe in HALF_OPEN (lock already taken)
         cb.redis.set = AsyncMock(return_value=False)
-        allowed, state = await cb.can_execute("ai_worker")
+        allowed, state = await cb.can_execute("gemini")
         assert allowed is False
         assert state == "HALF_OPEN"
 
@@ -91,29 +93,15 @@ def test_worker_supervisor_xpending_keys_and_recovery():
     asyncio.run(_test())
 
 def test_router_keyword_word_boundaries(monkeypatch):
-    """Substring matching made 'tissue'/'issue' open legal escalations, 'private' trigger the
-    VAT answer and 'waterfall' trigger the water-damage answer."""
+    """Substring matching made 'tissue'/'issue' open legal escalations."""
     from app import agent_tools
-
-    class DummySession:
-        async def __aenter__(self):
-            return object()
-
-        async def __aexit__(self, *exc):
-            return False
 
     monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
     monkeypatch.setattr(agent_tools, "escalate_to_human", AsyncMock(return_value={"ticket_id": "T1"}))
     monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
 
     def answer(text):
-        return asyncio.run(agent_tools.answer_text_query(text, text, None))[0]
+        return asyncio.run(agent_tools.route_query(text, text, None)).fallback
 
     assert answer("Can you pass me a tissue for this issue?") == "GENERIC"
-    assert "Urgent Priority Escalation" in answer("I will sue your company unless you refund me")
-
-    assert answer("Is this a private conversation about elevation?") == "GENERIC"
-    assert "Customs" in answer("Do I pay VAT on delivery?")
-
-    assert answer("I like listening to the waterfall audio preset") == "GENERIC"
-    assert "Warranty" in answer("I accidentally dropped the earbuds in the water pool")
+    assert "urgent ticket #T1" in answer("I will sue your company unless you refund me")

@@ -87,13 +87,3 @@ class SupportTicket(Base):
     status = Column(String(50), default="open") # 'open', 'in_progress', 'resolved'
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
-
-class FeedbackRating(Base):
-    __tablename__ = "feedback_ratings"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    score = Column(Integer, nullable=False) # 1 to 5
-    feedback_text = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utc_now)

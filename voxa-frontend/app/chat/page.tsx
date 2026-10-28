@@ -27,6 +27,8 @@ import { RichText } from '@/components/RichText';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || API_URL.replace(/^http/, 'ws');
 const MAX_MESSAGE_CHARS = 2000; // mirrors the gateway's WS_MAX_TEXT_QUERY_CHARS
+const MAX_AUDIO_B64_CHARS = 4_000_000; // mirrors the gateway's WS_MAX_AUDIO_CHUNK_B64_CHARS
+const MAX_RECORDING_MS = 30_000;
 
 type ConnectionState = 'connecting' | 'open' | 'closed';
 
@@ -39,7 +41,9 @@ interface ChatMessage {
   totalLatencyMs?: number;
   traceId?: string;
   cacheHit?: boolean;
+  fallback?: boolean; // Gemini was unavailable, so this is the plain reply
   streaming?: boolean; // true until the final token_chunk for this trace arrives
+  pending?: boolean; // voice message waiting for its transcript
   isError?: boolean;
 }
 
@@ -59,6 +63,14 @@ const newTraceId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const blobToBase64 = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 
 const QUICK_ACTIONS = [
   { label: 'Track Order: ORD-88412', query: 'Check status for order ORD-88412', icon: Package, color: 'text-indigo-400', hover: 'hover:border-indigo-500/40' },
@@ -80,8 +92,8 @@ export default function ChatPage() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPlayingReply, setIsPlayingReply] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [interimTranscript, setInterimTranscript] = useState('');
   const [micError, setMicError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -97,19 +109,20 @@ export default function ChatPage() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replyAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const lastLevelRef = useRef(0);
-  const transcriptAccumulatorRef = useRef<string>('');
   // Per-trace stream statistics used to derive throughput: first chunk time + chunk count.
   const streamStatsRef = useRef<Record<string, { firstAt: number; chunks: number }>>({});
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, interimTranscript]);
+  }, [messages]);
 
   const stopAudioAnalyser = () => {
     if (animFrameRef.current) {
@@ -136,6 +149,18 @@ export default function ChatPage() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
     let disposed = false;
+
+    const playReply = (audioBase64: string) => {
+      replyAudioRef.current?.pause();
+      const audio = new Audio(`data:audio/mpeg;base64,${audioBase64}`);
+      replyAudioRef.current = audio;
+      audio.onplay = () => setIsPlayingReply(true);
+      audio.onended = audio.onpause = () => setIsPlayingReply(false);
+      audio.play().catch((err) => {
+        // Browsers block playback when the page has not had a recent user gesture.
+        console.warn('Could not play the spoken reply:', err);
+      });
+    };
 
     const handleServerEvent = (raw: string) => {
       let data: any;
@@ -167,6 +192,7 @@ export default function ChatPage() {
                 totalLatencyMs: data.total_latency_ms,
                 traceId,
                 cacheHit: data.cache_hit,
+                fallback: data.fallback,
                 streaming: !data.is_final
               }
             ];
@@ -178,6 +204,7 @@ export default function ChatPage() {
             ttftMs: data.ttft_ms ?? current.ttftMs,
             totalLatencyMs: data.total_latency_ms ?? current.totalLatencyMs,
             cacheHit: data.cache_hit ?? current.cacheHit,
+            fallback: data.fallback ?? current.fallback,
             streaming: !data.is_final
           };
           return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
@@ -191,14 +218,21 @@ export default function ChatPage() {
             tokensPerSec: elapsedSec > 0 && stats.chunks > 1 ? stats.chunks / elapsedSec : null,
             traceId,
             cacheHit: !!data.cache_hit,
-            circuitBreakerState: data.circuit_breaker || 'CLOSED'
+            circuitBreakerState: data.circuit_breaker ?? null
           });
           delete streamStatsRef.current[traceId];
         }
+      } else if (data.type === 'transcript') {
+        // Replace the "Transcribing…" bubble with what the server heard.
+        setMessages((prev) =>
+          prev.map((m) => (m.pending && m.traceId === data.trace_id ? { ...m, content: data.text, pending: false } : m))
+        );
+      } else if (data.type === 'audio_response') {
+        if (data.audio_data) playReply(data.audio_data);
       } else if (data.type === 'error') {
         setIsSpeaking(false);
         setMessages((prev) => [
-          ...prev,
+          ...prev.filter((m) => !(m.pending && m.traceId === data.trace_id)),
           {
             id: `error-${Date.now()}-${prev.length}`,
             sender: 'assistant',
@@ -244,6 +278,10 @@ export default function ChatPage() {
         if (wsRef.current === ws) wsRef.current = null;
         if (disposed) return;
         setIsSpeaking(false);
+        // Replies are tied to the closed session, so a voice message still waiting will never be answered.
+        setMessages((prev) =>
+          prev.map((m) => (m.pending ? { ...m, content: 'Voice message (the connection dropped before it was answered)', pending: false } : m))
+        );
         scheduleReconnect();
       };
     };
@@ -254,9 +292,13 @@ export default function ChatPage() {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
       socket?.close();
-      try {
-        recognitionRef.current?.abort();
-      } catch {}
+      const recorder = recorderRef.current;
+      if (recorder) {
+        recorder.onstop = null; // leaving the page discards an unsent recording
+        if (recorder.state === 'recording') recorder.stop();
+      }
+      if (recordTimerRef.current) clearTimeout(recordTimerRef.current);
+      replyAudioRef.current?.pause();
       stopAudioAnalyser();
     };
   }, []);
@@ -312,94 +354,81 @@ export default function ChatPage() {
       { id: `user-${traceId}`, sender: 'user', content: text, timestamp: clockTime(), traceId }
     ]);
     setInputMessage('');
-    setInterimTranscript('');
-    transcriptAccumulatorRef.current = '';
   };
 
-  // Voice input via the browser's Web Speech API (Chrome / Edge / Safari).
+  // Voice input: the clip is recorded here and sent as one audio_chunk. The server
+  // transcribes it (Faster-Whisper), answers it and sends back a spoken reply (edge-tts).
+  const sendRecording = async (blob: Blob) => {
+    if (blob.size === 0) {
+      setMicError('No audio was recorded. Please try again.');
+      return;
+    }
+    const audioData = await blobToBase64(blob);
+    if (audioData.length > MAX_AUDIO_B64_CHARS) {
+      setMicError('That recording is too large to send. Please keep it under 30 seconds.');
+      return;
+    }
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setMicError('Not connected to the support gateway, so the recording was not sent. Please try again.');
+      return;
+    }
+
+    const traceId = newTraceId();
+    socket.send(JSON.stringify({ type: 'audio_chunk', audio_data: audioData, trace_id: traceId }));
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-${traceId}`, sender: 'user', content: 'Transcribing…', timestamp: clockTime(), traceId, pending: true }
+    ]);
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+  };
+
   const handleToggleVoice = async () => {
     if (isRecording) {
-      if (recognitionRef.current) {
-        // onend submits the transcript exactly once.
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      } else {
-        stopAudioAnalyser();
-        setIsRecording(false);
-      }
+      stopRecording(); // onstop sends the clip
       return;
     }
-
     setMicError(null);
-    setInterimTranscript('');
-    transcriptAccumulatorRef.current = '';
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setMicError('Voice input is not supported in this browser. Please use Chrome, Edge or Safari, or type your question.');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMicError('Voice input is not available here. Browsers only allow the microphone on HTTPS or localhost. Please type your question.');
       return;
     }
 
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      startAudioAnalyser(stream);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.warn('Microphone permission error:', err);
       setMicError('Microphone access is blocked. Allow microphone access in your browser settings to speak.');
       return;
     }
+    micStreamRef.current = stream;
+    startAudioAnalyser(stream);
+    replyAudioRef.current?.pause(); // stop a spoken reply that is still playing
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false; // single utterance, auto-commits on silence
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      recognition.maxAlternatives = 1;
-
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = 0; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript) {
-          setInterimTranscript(transcript);
-          transcriptAccumulatorRef.current = transcript;
-          setInputMessage(transcript);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          setMicError('Microphone permission was denied in your browser settings.');
-        } else if (event.error === 'no-speech') {
-          setMicError('No speech was detected. Please try again.');
-        } else if (event.error !== 'aborted') {
-          setMicError(`Voice input error: ${event.error}`);
-        }
-      };
-
-      // Fires after stop(), silence, or an error: the single place that submits.
-      recognition.onend = () => {
-        recognitionRef.current = null;
-        setIsRecording(false);
-        stopAudioAnalyser();
-        const transcript = transcriptAccumulatorRef.current.trim();
-        transcriptAccumulatorRef.current = '';
-        setInterimTranscript('');
-        if (transcript) handleSendMessage(transcript);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.warn('Speech recognition init error:', err);
-      recognitionRef.current = null;
+    const recorder = new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onstop = () => {
+      if (recordTimerRef.current) clearTimeout(recordTimerRef.current);
+      recorderRef.current = null;
       stopAudioAnalyser();
-      setMicError('Could not start voice input. Please type your question instead.');
-    }
+      setIsRecording(false);
+      sendRecording(new Blob(chunks, { type: recorder.mimeType }));
+    };
+    recorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+    recordTimerRef.current = setTimeout(() => {
+      setMicError('Recordings are limited to 30 seconds, so this one was stopped and sent.');
+      stopRecording();
+    }, MAX_RECORDING_MS);
   };
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -414,13 +443,17 @@ export default function ChatPage() {
   };
 
   const isConnected = connectionState === 'open';
+  const isTranscribing = messages.some((m) => m.pending);
+  const isReplying = isSpeaking || isPlayingReply;
   const statusLabel = isRecording
-    ? 'Listening (speak now)...'
-    : isSpeaking
-      ? 'Responding...'
-      : isConnected
-        ? 'Voice assistant ready'
-        : 'Connecting to gateway...';
+    ? 'Recording... click the mic again to send'
+    : isTranscribing
+      ? 'Transcribing...'
+      : isReplying
+        ? 'Responding...'
+        : isConnected
+          ? 'Voice assistant ready'
+          : 'Connecting to gateway...';
 
   return (
     <div className="flex h-screen h-dvh bg-[#080c14] text-slate-100 overflow-hidden font-sans relative">
@@ -434,7 +467,7 @@ export default function ChatPage() {
             </div>
             <div>
               <p className="text-sm font-bold tracking-tight text-white">Voxa Support</p>
-              <p className="text-[11px] text-slate-400">Live Voice & Knowledge Console</p>
+              <p className="text-[11px] text-slate-400">Voice and text support</p>
             </div>
           </div>
 
@@ -444,21 +477,21 @@ export default function ChatPage() {
               type="button"
               onClick={handleToggleVoice}
               aria-pressed={isRecording}
-              aria-label={isRecording ? 'Stop listening' : 'Start voice input'}
+              aria-label={isRecording ? 'Stop recording and send' : 'Record a voice message'}
               className="group relative p-3 rounded-full hover:bg-slate-900/60 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
-              <VoiceOrb isSpeaking={isSpeaking} isListening={isRecording} audioLevel={audioLevel} />
+              <VoiceOrb isSpeaking={isReplying} isListening={isRecording} audioLevel={audioLevel} />
               <span className="absolute inset-0 rounded-full border border-indigo-500/20 group-hover:border-indigo-500/50 transition-colors pointer-events-none" />
             </button>
 
             <div className="mt-4 flex items-center gap-2" aria-live="polite">
-              <span className={`w-2 h-2 rounded-full ${isRecording ? 'bg-pink-500 animate-pulse' : isSpeaking ? 'bg-cyan-400 animate-pulse' : isConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <span className={`w-2 h-2 rounded-full ${isRecording ? 'bg-pink-500 animate-pulse' : isTranscribing || isReplying ? 'bg-cyan-400 animate-pulse' : isConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
               <span className="text-xs font-medium text-slate-300">{statusLabel}</span>
             </div>
 
             {/* Decorative activity waveform */}
             <div className="w-full mt-4 h-8 flex items-center justify-center" aria-hidden="true">
-              <AudioWaveform isPlaying={isRecording || isSpeaking} />
+              <AudioWaveform isPlaying={isRecording || isReplying} />
             </div>
           </div>
 
@@ -520,7 +553,7 @@ export default function ChatPage() {
                   {isConnected ? 'Live' : connectionState === 'connecting' ? 'Connecting' : 'Offline'}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Automated Knowledge & Voice Resolution Pipeline</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Orders, refunds and policies, by voice or text</p>
             </div>
           </div>
 
@@ -559,7 +592,7 @@ export default function ChatPage() {
           className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-4xl w-full mx-auto"
           role="log"
           aria-live="polite"
-          aria-busy={isSpeaking}
+          aria-busy={isSpeaking || isTranscribing}
           aria-label="Conversation"
         >
           {messages.map((msg) => (
@@ -584,7 +617,7 @@ export default function ChatPage() {
                 <div
                   className={`min-w-0 p-4 rounded-2xl text-xs sm:text-sm leading-relaxed transition-all ${
                     msg.sender === 'user'
-                      ? 'bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10'
+                      ? `bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10 ${msg.pending ? 'opacity-70 italic' : ''}`
                       : msg.isError
                         ? 'bg-amber-500/10 border border-amber-500/30 text-amber-100 rounded-bl-none'
                         : 'bg-slate-900/80 border border-slate-800 text-slate-200 rounded-bl-none shadow-sm'
@@ -601,6 +634,11 @@ export default function ChatPage() {
                         {msg.cacheHit && (
                           <span className="text-emerald-400 font-semibold flex items-center gap-1">
                             <Zap className="w-2.5 h-2.5" aria-hidden="true" /> Cache hit
+                          </span>
+                        )}
+                        {msg.fallback && (
+                          <span className="text-amber-300 font-semibold" title="Gemini was unavailable, so this is the plain reply">
+                            Fallback
                           </span>
                         )}
                         <span>TTFT: <span className="text-cyan-400">{msg.ttftMs}ms</span></span>
@@ -622,17 +660,6 @@ export default function ChatPage() {
               </div>
             </div>
           ))}
-
-          {/* Live Interim Voice Transcript Bubble */}
-          {isRecording && interimTranscript && (
-            <div className="flex flex-col items-end">
-              <div className="p-3.5 rounded-2xl rounded-br-none bg-indigo-600/40 border border-indigo-500/50 text-indigo-100 text-xs sm:text-sm max-w-[80%] flex items-center gap-2">
-                <Mic className="w-3.5 h-3.5 text-pink-400 animate-pulse" aria-hidden="true" />
-                <span>{interimTranscript}</span>
-              </div>
-              <span className="text-[10px] text-pink-400 font-mono mt-1 mr-1">Listening in real-time...</span>
-            </div>
-          )}
 
           {/* Mic Access Error Toast */}
           {micError && (
@@ -687,8 +714,8 @@ export default function ChatPage() {
               onClick={handleToggleVoice}
               disabled={!isConnected && !isRecording}
               aria-pressed={isRecording}
-              aria-label={isRecording ? 'Stop recording' : 'Speak via microphone'}
-              title={isRecording ? 'Stop recording' : 'Speak via microphone'}
+              aria-label={isRecording ? 'Stop recording and send' : 'Record a voice message'}
+              title={isRecording ? 'Stop recording and send' : 'Record a voice message'}
               className={`p-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
                 isRecording
                   ? 'bg-pink-600 text-white animate-pulse shadow-lg shadow-pink-600/30'
@@ -710,7 +737,7 @@ export default function ChatPage() {
                 onChange={(e) => setInputMessage(e.target.value)}
                 placeholder={
                   isRecording
-                    ? 'Listening to your speech...'
+                    ? 'Recording... click the mic again to send'
                     : isConnected
                       ? 'Type an order, refund or warranty question…'
                       : 'Waiting for the gateway connection…'

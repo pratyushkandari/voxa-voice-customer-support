@@ -1,7 +1,7 @@
 """
-Idempotent demo-data seeding: admin/demo users, three sample orders and the RAG
-knowledge base (with embeddings). Runs on every gateway start; each block is skipped
-when its data already exists. Run standalone with ``python -m app.seed_data``.
+Idempotent demo-data seeding: admin/demo users, three sample orders and the knowledge
+base (with embeddings). Runs on every gateway start and only adds what is missing.
+Run standalone with ``python -m app.seed_data``.
 """
 import asyncio
 import logging
@@ -38,6 +38,34 @@ DEFAULT_KNOWLEDGE_DOCS = [
     {
         "topic": "Order Tracking & Status Guide",
         "content": "To check your order status, provide your order ID format ORD-XXXXX. Status states include 'Processing' (order being packed), 'Shipped' (in transit with courier), and 'Delivered' (successfully left at shipping address)."
+    },
+    {
+        "topic": "Bulk & Business Orders",
+        "content": "Orders of 20 or more units of Earbuds Pro or Studio Headphones get a 20% to 25% volume discount, Net-30 invoicing with VAT/GST receipts and a 2-year warranty. Ask for a bulk quote and a support specialist will follow up."
+    },
+    {
+        "topic": "International Shipping, Customs & VAT",
+        "content": "International orders ship Delivered Duty Paid (DDP): local VAT and import duties are charged at checkout, so there are no extra fees on delivery. International delivery takes 7 to 14 business days with tracking."
+    },
+    {
+        "topic": "Bluetooth Multipoint Pairing",
+        "content": "Earbuds Pro and Studio Headphones support Bluetooth 5.3 multipoint, so they can stay connected to two devices at once, for example a phone and a laptop. Pair the first device, hold the case button for 3 seconds to enter pairing mode, then select 'Voxa Audio' on the second device. Audio switches to the phone for incoming calls."
+    },
+    {
+        "topic": "Water Damage & Out-of-Warranty Replacement",
+        "content": "The 1-year warranty covers manufacturing defects. It does not cover water damage beyond the IPX7 rating, such as swimming with the earbuds, or devices older than 12 months. In those cases we offer an out-of-warranty replacement at 35% off."
+    },
+    {
+        "topic": "Price Protection",
+        "content": "If an item you bought goes on sale within 14 days of your order, we refund the price difference to your original payment method within 3 to 5 business days."
+    },
+    {
+        "topic": "Package Marked Delivered But Not Received",
+        "content": "Couriers sometimes mark a package delivered up to 24 hours before it arrives. Check with neighbours, your building's reception and anyone at your address. If it still hasn't arrived after 24 hours, contact support with your order ID and we will send a free replacement."
+    },
+    {
+        "topic": "Product Guide: Earbuds Pro vs Studio Headphones",
+        "content": "Wireless Earbuds Pro ($149) suit workouts and travel: IPX7 water resistance and 32 hours of battery with the case. Smart Studio Headphones ($249) suit focus and listening at home or in the office: 42 dB active noise cancellation and a fuller sound. Choose the earbuds for portability and the headphones for noise cancellation."
     }
 ]
 
@@ -94,19 +122,15 @@ async def seed_database():
             db.add_all(orders)
             await db.commit()
 
-        # 3. Seed Knowledge Base Embeddings (pgvector)
-        kb_check = await db.execute(select(KnowledgeBase))
-        if not kb_check.scalars().first():
-            logger.info("Generating embeddings and seeding RAG knowledge base...")
-            kb_entries = []
-            for doc in DEFAULT_KNOWLEDGE_DOCS:
+        # 3. Knowledge base: insert any topic that is missing, so databases seeded by an
+        #    older release also pick up new documents.
+        existing_topics = set((await db.execute(select(KnowledgeBase.topic))).scalars().all())
+        new_docs = [doc for doc in DEFAULT_KNOWLEDGE_DOCS if doc["topic"] not in existing_topics]
+        if new_docs:
+            logger.info(f"Embedding {len(new_docs)} knowledge-base documents...")
+            for doc in new_docs:
                 embedding_vec = await rag_engine.generate_embedding_async(doc["content"])
-                kb_entries.append(KnowledgeBase(
-                    topic=doc["topic"],
-                    content=doc["content"],
-                    embedding=embedding_vec
-                ))
-            db.add_all(kb_entries)
+                db.add(KnowledgeBase(topic=doc["topic"], content=doc["content"], embedding=embedding_vec))
             await db.commit()
             
         logger.info("Database seeding complete")

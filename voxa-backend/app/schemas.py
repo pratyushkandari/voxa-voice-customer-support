@@ -1,6 +1,5 @@
 """Pydantic request/response contracts for the public REST API."""
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -32,35 +31,12 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
-# ----------------- Chat Schemas -----------------
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
-    # Continue an existing conversation owned by the caller; omit to start a new one.
-    conversation_id: Optional[UUID] = None
-
-
 # ----------------- Ticket Schemas -----------------
 class TicketResponse(BaseModel):
     id: UUID
     issue_summary: str
     priority: str
     status: str
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-# ----------------- Feedback Schemas -----------------
-class FeedbackCreate(BaseModel):
-    message_id: UUID
-    score: int = Field(..., ge=1, le=5)
-    feedback_text: Optional[str] = Field(default=None, max_length=2000)
-
-
-class FeedbackResponse(BaseModel):
-    id: UUID
-    message_id: UUID
-    score: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

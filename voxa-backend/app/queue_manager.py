@@ -2,9 +2,9 @@
 Gateway-side producer for the Redis Streams worker pipeline.
 
     gateway --XADD--> stream:audio:transcribe --(stt_group)--> STT worker
-    gateway / STT --XADD--> stream:llm:inference --(llm_group)--> LLM worker
+    STT worker --XADD--> stream:llm:inference --(llm_group)--> LLM worker
     LLM worker --XADD--> stream:tts:synthesize --(tts_group)--> TTS worker
-    workers --PUBLISH--> token:stream:{session_id} --> gateway --> WebSocket / SSE client
+    workers --PUBLISH--> token:stream:{session_id} --> gateway --> WebSocket client
 
 All stream fields are strings (Redis Streams store flat string maps).
 """
@@ -83,21 +83,6 @@ class QueueManager:
         }
         return await self.redis.xadd(
             settings.STREAM_STT_AUDIO, payload, maxlen=settings.STREAM_MAXLEN, approximate=True
-        )
-
-    async def publish_llm_task(self, session_id: str, user_id: str, prompt: str, conversation_id: str, trace_id: str) -> str:
-        """Pushes a user inference query to the LLM stream."""
-        payload = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "prompt": prompt,
-            "conversation_id": conversation_id,
-            "trace_id": trace_id,
-            "timestamp": str(time.time()),
-            "retry_count": "0"
-        }
-        return await self.redis.xadd(
-            settings.STREAM_LLM_INFERENCE, payload, maxlen=settings.STREAM_MAXLEN, approximate=True
         )
 
 
