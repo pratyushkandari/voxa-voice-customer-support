@@ -77,8 +77,8 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
         # 3. Calculate latency and record Prometheus metrics
         duration = time.time() - start_time
 
-        # Label by the route *template* (e.g. /v1/tools/order/{order_id}), never the raw
-        # path: raw paths put user-controlled IDs into label values and every distinct
+        # Label by the matched route's template, never the raw path: any URL a client
+        # sends (e.g. /no-such-page/12345) would become a label value, and every distinct
         # value creates a new time series (unbounded memory / cardinality explosion).
         route = request.scope.get("route")
         endpoint = getattr(route, "path", None) or "unmatched"

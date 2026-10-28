@@ -127,7 +127,7 @@ Compose reads overrides from a `.env` file in the repository root:
 | `NEXT_PUBLIC_WS_URL` | derived from the API URL | Only needed if the WebSocket is served elsewhere. |
 | `CORS_ALLOW_ORIGIN_REGEX` | any `localhost` / `127.0.0.1` port | Browser origins allowed to call the API. |
 
-Backend settings (rate limits, size limits, model names, stream names) are listed in [voxa-backend/.env.example](voxa-backend/.env.example).
+Backend settings (rate limits, size limits, model names) are listed in [voxa-backend/.env.example](voxa-backend/.env.example). The Redis stream names have defaults in [app/config.py](voxa-backend/app/config.py).
 
 When serving on a public IP, set `NEXT_PUBLIC_API_URL` and `CORS_ALLOW_ORIGIN_REGEX` to that host. Browsers only allow microphone access over HTTPS or on `localhost`, so voice input on a plain-HTTP public address needs TLS in front of it.
 
