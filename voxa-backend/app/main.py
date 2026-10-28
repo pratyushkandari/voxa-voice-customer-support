@@ -32,7 +32,7 @@ from app.auth import (
     verify_password_async,
 )
 from app.config import settings
-from app.database import AsyncSessionLocal, engine, get_db, init_db
+from app.database import AsyncSessionLocal, engine, get_db
 from app.guardrails import sanitize_user_input
 from app.llm import answer_query
 from app.models import Conversation, Message, SupportTicket, User
@@ -63,7 +63,6 @@ install_log_redaction()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Voxa gateway")
-    await init_db()
     try:
         await seed_database()
     except Exception as e:

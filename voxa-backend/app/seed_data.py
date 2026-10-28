@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.auth import get_password_hash_async
 from app.config import settings
-from app.database import AsyncSessionLocal, init_db
+from app.database import AsyncSessionLocal
 from app.models import KnowledgeBase, Order, User
 from app.rag_engine import rag_engine
 
@@ -70,7 +70,7 @@ DEFAULT_KNOWLEDGE_DOCS = [
 ]
 
 async def seed_database():
-    """Seeds demo data. Assumes the schema exists (call ``init_db()`` first)."""
+    """Seeds demo data. Assumes the schema is migrated (``python -m app.migrate``)."""
     async with AsyncSessionLocal() as db:
         # 1. Seed Admin & Demo Users
         admin_check = await db.execute(select(User).where(User.email == "admin@voxa.ai"))
@@ -135,11 +135,6 @@ async def seed_database():
             
         logger.info("Database seeding complete")
 
-async def _main():
-    await init_db()
-    await seed_database()
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(_main())
+    asyncio.run(seed_database())

@@ -14,6 +14,21 @@ jobs:
     defaults:
       run:
         working-directory: voxa-backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voxa_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d voxa_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/voxa_db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +43,12 @@ jobs:
           pip install -r requirements.txt
       - name: Unit tests
         run: pytest -q
+      - name: Migrations apply cleanly and match the models
+        run: |
+          python -m app.migrate
+          alembic downgrade base
+          alembic upgrade head
+          alembic check
 
   frontend:
     runs-on: ubuntu-latest
