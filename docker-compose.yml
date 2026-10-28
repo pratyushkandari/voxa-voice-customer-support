@@ -56,7 +56,25 @@ services:
       - voxa-network
 
   # =======================================================
-  # 3. FastAPI Edge Gateway & WebSocket Ingress
+  # 3. Schema migrations (Alembic): run once, then exit, before the gateway and workers
+  # =======================================================
+  migrate:
+    build:
+      context: ./voxa-backend
+      dockerfile: Dockerfile.gateway
+    container_name: voxa-migrate
+    command: ["python", "-m", "app.migrate"]
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/voxa_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - voxa-network
+
+  # =======================================================
+  # 3b. FastAPI Edge Gateway & WebSocket Ingress
   # =======================================================
   gateway:
     build:
@@ -75,8 +93,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:
@@ -117,8 +135,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:

@@ -111,4 +111,7 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
   - PostgreSQL, Redis and Prometheus listen on `127.0.0.1`, and the LLM worker's metrics port is only reachable on the Compose network.
   - On a cloud VM, reach them through an SSH tunnel and keep those ports closed in the firewall.
   - Voice input on a public address needs HTTPS in front of the frontend and gateway.
-- **Upgrading:** `git pull` then `docker compose up --build -d`. New knowledge-base documents are added on gateway start; existing rows are left alone.
+- **Upgrading:** `git pull` then `docker compose up --build -d`.
+  - The `voxa-migrate` container applies any new migrations before the gateway and LLM worker start. Check it with `docker logs voxa-migrate`; if it fails, they don't start.
+  - New knowledge-base documents are added on gateway start; existing rows are left alone.
+- **Rolling back a migration:** back up first, then `docker compose run --rm migrate alembic downgrade -1`. `docker compose run --rm migrate alembic current` shows the applied revision.

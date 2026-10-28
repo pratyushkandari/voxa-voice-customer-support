@@ -386,6 +386,16 @@ def test_router_matches_escalate_verb(monkeypatch):
     assert "ticket #abc" in routed.fallback and "#abc" in routed.facts
 
 
+def test_router_opens_a_ticket_for_a_support_specialist(monkeypatch):
+    """The console offers to 'Escalate to Specialist', but asking for a specialist got a policy article."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "escalate_to_human", AsyncMock(return_value={"ticket_id": "abc"}))
+    text = "My earbuds stopped charging. Can I talk to a support specialist?"
+    routed = asyncio.run(agent_tools.route_query(text, text, None))
+    assert "ticket #abc" in routed.fallback
+    agent_tools.escalate_to_human.assert_awaited_once()
+
+
 def test_router_reports_missing_order_instead_of_none(monkeypatch):
     """Previously rendered 'Order None is currently None. Tracking number: None.'"""
     monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)

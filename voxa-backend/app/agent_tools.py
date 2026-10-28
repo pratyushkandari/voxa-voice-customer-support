@@ -198,7 +198,7 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
         )
 
     # 4. Request for a person
-    if re.search(r'\b(human|agent|manager|escalat\w*|representative|talk to someone)\b', prompt_lower):
+    if re.search(r'\b(human|agent|manager|specialist|escalat\w*|representative|talk to someone)\b', prompt_lower):
         async with AsyncSessionLocal() as db_session:
             tool_result = await escalate_to_human(clean_query, "urgent", user_id, db_session)
         ref = ticket_reference(tool_result["ticket_id"])

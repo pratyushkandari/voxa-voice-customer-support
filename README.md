@@ -1,5 +1,7 @@
 # Voxa
 
+[![CI](https://github.com/pratyushkandari/voxa-voice-customer-support/actions/workflows/ci.yml/badge.svg)](https://github.com/pratyushkandari/voxa-voice-customer-support/actions/workflows/ci.yml)
+
 A real-time customer-support platform with streaming voice and text chat.
 
 The web console holds a WebSocket to a FastAPI gateway. Typed questions are answered by the gateway. Spoken questions go through workers connected by Redis Streams: Faster-Whisper turns the recording into text, the LLM worker answers it, and edge-tts speaks the reply. Each worker can be scaled and restarted on its own.
@@ -14,7 +16,7 @@ Every answer is built in two steps:
 
 If Gemini isn't configured, fails, times out or runs out of quota, the router's plain reply, built from the same facts, is sent instead.
 
-**Stack:** Python 3.11, FastAPI, Redis 7, PostgreSQL 16 + pgvector, sentence-transformers (all-MiniLM-L6-v2), Gemini (google-genai), Faster-Whisper, edge-tts, Next.js 14, Docker Compose, Prometheus.
+**Stack:** Python 3.11, FastAPI, Redis 7, PostgreSQL 16 + pgvector, sentence-transformers (all-MiniLM-L6-v2), Gemini (google-genai), Faster-Whisper, edge-tts, Alembic, Next.js 15, Docker Compose, Prometheus, GitHub Actions.
 
 ## Features
 
@@ -35,6 +37,14 @@ If Gemini isn't configured, fails, times out or runs out of quota, the router's 
   - prompt-injection checks before routing
   - bcrypt + JWT auth, and per-user / per-IP rate limiting
 - **Operations console:** live TTFT, p95 latency, cache hit ratio, worker heartbeats, queue backlog and escalation tickets. Prometheus scrapes the gateway and the LLM worker.
+
+## Screenshots
+
+![Landing page](docs/images/landing.png)
+
+The operations console shows live latency, the cache hit ratio, worker heartbeats, the queue backlog and escalation tickets. In this example, a request for a support specialist and a billing complaint each opened an urgent ticket.
+
+![Operations console](docs/images/admin.png)
 
 ## Architecture
 
@@ -86,7 +96,7 @@ echo "GEMINI_API_KEY=<your key>" > .env
 docker compose up --build -d
 ```
 
-On first start the containers download the embedding and Whisper models. The TTS worker needs outbound internet access, because edge-tts uses Microsoft's online voices.
+A short-lived `migrate` container applies the database migrations first; the gateway and LLM worker wait for it. On first start the containers download the embedding and Whisper models. The TTS worker needs outbound internet access, because edge-tts uses Microsoft's online voices.
 
 | Service | URL |
 | --- | --- |
@@ -140,10 +150,18 @@ Rate-limited endpoints return `429` with `Retry-After: 60`. The default limit is
 
 ## Testing
 
-**Backend unit tests.** These are self-contained: no Redis, PostgreSQL, Gemini or model downloads.
+**CI.** GitHub Actions runs on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+- the backend unit tests
+- the migrations against a real pgvector PostgreSQL (upgrade, downgrade to empty, upgrade again, then `alembic check` against the models)
+- frontend lint, typecheck and production build
+
+The end-to-end tests below need the full stack, so they run locally.
+
+**Backend unit tests.** These are self-contained: no Redis, PostgreSQL, Gemini or model downloads. Install the CPU-only torch first, or sentence-transformers pulls the much larger CUDA build.
 
 ```bash
 cd voxa-backend
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 pytest
 ```
@@ -173,6 +191,15 @@ VOXA_E2E_BASE_URL=http://localhost:8088 pytest tests/test_e2e_stack.py -v
 ```
 
 Set `VOXA_E2E_ADMIN_PASSWORD` if you changed `SEED_ADMIN_PASSWORD`.
+
+**Database migrations.** The schema is managed with Alembic in `voxa-backend/migrations/`. `python -m app.migrate` applies them. A database created by an older version, which built its tables at start-up, is stamped at the baseline revision first so its data is kept. After changing `app/models.py`:
+
+```bash
+cd voxa-backend
+alembic revision --autogenerate -m "describe the change"   # review the generated file
+python -m app.migrate
+alembic check                                              # models and database agree
+```
 
 **Frontend:**
 
@@ -204,7 +231,9 @@ voxa-backend/
     auth.py              bcrypt, JWT, guest accounts, role checks
     telemetry.py         Prometheus metrics, correlation IDs, log redaction
     config.py            settings from environment variables
+    migrate.py           applies the Alembic migrations (stamps pre-migration databases)
     database.py, models.py, schemas.py, seed_data.py
+  migrations/            Alembic environment and versioned schema changes
   workers/               STT, LLM, TTS workers and the supervisor
   tests/                 pytest suite, voice fixture and k6 script
   telemetry/             Prometheus scrape config
@@ -212,6 +241,7 @@ voxa-frontend/
   app/                   landing page, chat console, admin console
   components/            voice orb, waveform, telemetry panel, text rendering
 docs/                    architecture and operations runbook
+.github/workflows/       CI
 docker-compose.yml
 ```
 
@@ -245,9 +275,8 @@ docker-compose.yml
   - Fallback replies: a few milliseconds.
 - **Spoken order IDs.** Whisper sometimes mishears "ORD" (as "or D", say). The reply then has no order facts and asks for the order ID.
 - **Voice needs HTTPS** outside `localhost`, because browsers only allow the microphone in secure contexts.
-- **Schema changes.** Tables are created with `create_all` at start-up, and there are no migrations.
 - **Monitoring.** Prometheus has no dashboards or alert rules yet, and the breaker state lives in Redis rather than in a metric.
-- **Next.js advisories.** The frontend is on the latest Next.js 14.2 patch; some advisories are only fixed in 15.5+/16.
+- **Next.js 16.** The frontend is on Next.js 15.5 with React 19. `next lint` is deprecated there and goes away in 16, so moving to 16 means switching to the ESLint CLI.
 
 ## License
 

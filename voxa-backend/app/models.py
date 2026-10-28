@@ -76,6 +76,13 @@ class KnowledgeBase(Base):
     content = Column(Text, nullable=False)
     embedding = Column(Vector(384), nullable=False) # all-MiniLM-L6-v2 384-dimensional vector
 
+    __table_args__ = (
+        # HNSW gives approximate nearest-neighbour search instead of a sequential scan;
+        # vector_cosine_ops matches the `<=>` operator used in queries.
+        Index("idx_knowledge_base_embedding", "embedding", postgresql_using="hnsw",
+              postgresql_ops={"embedding": "vector_cosine_ops"}),
+    )
+
 
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
