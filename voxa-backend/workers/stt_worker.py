@@ -68,7 +68,10 @@ class STTWorker:
             temp_audio.write(audio_bytes)
 
         try:
-            segments, _info = self.model.transcribe(temp_path, beam_size=2, initial_prompt=WHISPER_PROMPT)
+            # vad_filter drops the parts without speech first. Given only silence, Whisper
+            # otherwise "hears" its own prompt and returns it as the transcript.
+            segments, _info = self.model.transcribe(temp_path, beam_size=2, initial_prompt=WHISPER_PROMPT,
+                                                    vad_filter=True)
             return " ".join(segment.text for segment in segments).strip()
         finally:
             try:
