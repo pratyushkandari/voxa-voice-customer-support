@@ -28,6 +28,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voxa.stt_worker")
 
 MAX_ATTEMPTS = 3
+# Whisper writes a spoken "ORD-88412" as "or D88412" for some voices, which the router
+# cannot match. A prompt showing the ID format makes it write the ID as typed.
+WHISPER_PROMPT = "Customer support call about Voxa orders. Order IDs look like ORD-88412."
 
 
 class STTWorker:
@@ -65,7 +68,7 @@ class STTWorker:
             temp_audio.write(audio_bytes)
 
         try:
-            segments, _info = self.model.transcribe(temp_path, beam_size=2)
+            segments, _info = self.model.transcribe(temp_path, beam_size=2, initial_prompt=WHISPER_PROMPT)
             return " ".join(segment.text for segment in segments).strip()
         finally:
             try:
