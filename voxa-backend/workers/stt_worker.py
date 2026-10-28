@@ -1,7 +1,8 @@
 """
 STT worker: consumes base64 audio from ``stream:audio:transcribe`` (group ``stt_group``),
-transcribes it with Faster-Whisper (CTranslate2, INT8 on CPU) and forwards the text to
-``stream:llm:inference`` for the LLM worker.
+transcribes it with Faster-Whisper (CTranslate2, INT8 on CPU), publishes the transcript to
+the session's Pub/Sub channel and forwards it to ``stream:llm:inference`` for the LLM
+worker.
 
 Failure handling: a failed task is re-enqueued with ``retry_count + 1``; after 3 attempts
 it goes to the dead-letter queue. Messages stranded by a crashed worker are re-delivered
@@ -102,15 +103,18 @@ class STTWorker:
                     "trace_id": trace_id,
                 }))
             else:
-                # Forward transcribed query to the LLM stream with voice-pipeline flags
+                # Show the user what was heard, then hand the text to the LLM worker.
+                await redis.publish(session_channel(session_id), json.dumps({
+                    "type": "transcript",
+                    "text": text_result,
+                    "stt_latency_ms": stt_latency_ms,
+                    "trace_id": trace_id,
+                }))
                 await redis.xadd(settings.STREAM_LLM_INFERENCE, {
                     "session_id": session_id,
                     "user_id": payload.get("user_id", "guest"),
                     "prompt": text_result,
-                    "conversation_id": payload.get("conversation_id", ""),
                     "trace_id": trace_id,
-                    "stt_latency_ms": str(stt_latency_ms),
-                    "origin": "audio",
                     "needs_audio": "true",
                     "retry_count": "0"
                 }, maxlen=settings.STREAM_MAXLEN, approximate=True)

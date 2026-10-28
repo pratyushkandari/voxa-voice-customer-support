@@ -5,9 +5,10 @@ Voxa FastAPI gateway: auth and admin REST endpoints, and the WebSocket the conso
 
 * ``text_query``: answered in-process (``app.llm.answer_query``: the intent router picks
   the facts, Gemini writes the reply), streamed back and saved for signed-in users.
-* ``audio_chunk``: base64 audio pushed to the STT stream. Worker events (tokens, TTS audio,
-  errors) arrive on the Redis Pub/Sub channel ``token:stream:{session_id}`` and are
-  forwarded to the socket.
+* ``audio_chunk``: base64 audio pushed to the STT stream. Worker events (the transcript,
+  reply tokens, TTS audio, errors) arrive on the Redis Pub/Sub channel
+  ``token:stream:{session_id}``; they are forwarded to the socket and the finished
+  exchange is saved for signed-in users.
 """
 import asyncio
 import json
@@ -179,7 +180,8 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
     Client -> server: ``{"type": "text_query", "text", "trace_id"?}`` or
                       ``{"type": "audio_chunk", "audio_data": <base64>, "trace_id"?}``.
     Server -> client: ``token_chunk`` (the streamed reply; the last has ``is_final``),
-                      ``ack``, ``audio_response`` (voice only) and ``error`` frames.
+                      ``ack``, ``transcript`` and ``audio_response`` (voice only) and
+                      ``error`` frames.
 
     ``?token=<JWT>`` is optional: anonymous sessions work, but only authenticated
     sessions are persisted (conversations belong to a user) and attributed on tickets.
@@ -192,22 +194,42 @@ async def websocket_stream(websocket: WebSocket, token: Optional[str] = Query(No
     authenticated_user_id = user_id_from_token(token)
     rate_identity = client_identity(websocket.client.host if websocket.client else None, websocket.headers, token)
 
-    # Dedicated Pub/Sub subscription for worker events (voice pipeline tokens, TTS audio)
+    # Dedicated Pub/Sub subscription for worker events (transcripts, reply tokens, TTS audio)
     pubsub = queue_manager.redis.pubsub()
     channel = session_channel(session_id)
+    voice_turns: dict[str, dict] = {}  # trace_id -> transcript and reply collected so far
 
     async def forward_worker_events():
         try:
             async for message in pubsub.listen():
-                if message and message.get("type") == "message" and message.get("data"):
-                    try:
-                        await websocket.send_json(json.loads(message["data"]))
-                    except Exception:
-                        pass  # malformed worker payload or socket already closing
+                if not (message and message.get("type") == "message" and message.get("data")):
+                    continue
+                try:
+                    event = json.loads(message["data"])
+                    await websocket.send_json(event)
+                except Exception:
+                    continue  # malformed worker payload or socket already closing
+                await record_voice_event(event)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.warning(f"Worker Pub/Sub forwarder closed for {session_id}: {e}")
+
+    async def record_voice_event(event: dict):
+        """Collects a voice exchange from worker events and saves it once the reply is complete."""
+        if authenticated_user_id is None:
+            return
+        trace_id = event.get("trace_id")
+        if event.get("type") == "transcript":
+            voice_turns[trace_id] = {"question": event.get("text", ""), "parts": []}
+        elif event.get("type") == "token_chunk" and trace_id in voice_turns:
+            voice_turns[trace_id]["parts"].append(event.get("token", ""))
+            if event.get("is_final"):
+                turn = voice_turns.pop(trace_id)
+                await save_turn(turn["question"], "".join(turn["parts"]).strip(),
+                                event.get("ttft_ms"), event.get("total_latency_ms"))
+        elif event.get("type") == "error":
+            voice_turns.pop(trace_id, None)
 
     forwarder_task: Optional[asyncio.Task] = None
     active_conversation_id = None
