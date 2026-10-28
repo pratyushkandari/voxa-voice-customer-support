@@ -223,8 +223,8 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
         )
 
     # 5. Everything else: semantic cache, then the knowledge base. Embedding the question
-    #    takes ~0.2 s on a small CPU, so it is done once and the vector reused for both
-    #    lookups and for caching the reply.
+    #    is the slowest step here (30-200 ms on the test machine, depending on CPU load),
+    #    so it is done once and the vector reused for both lookups and for caching the reply.
     query_vec = await rag_engine.generate_embedding_async(clean_query)
     cached = await rag_engine.check_semantic_cache(query_vec)
     if cached:

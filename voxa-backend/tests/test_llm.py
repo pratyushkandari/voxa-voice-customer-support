@@ -193,7 +193,7 @@ def test_only_knowledge_answers_written_by_gemini_are_cached(gemini, monkeypatch
 
 def test_a_knowledge_question_is_embedded_once(monkeypatch):
     """
-    Embedding a question takes about 0.2 s on a small CPU, and it was done three times:
+    Embedding a question is the slowest step of a knowledge answer, and it was done three times:
     for the cache lookup, for the knowledge-base search and again to cache the reply.
     """
     rag = agent_tools.rag_engine
