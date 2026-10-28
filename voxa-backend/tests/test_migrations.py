@@ -25,6 +25,7 @@ def test_migrations_create_every_model_table_and_the_hnsw_index():
     assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
     assert "USING hnsw (embedding vector_cosine_ops)" in sql
     assert "DROP TABLE IF EXISTS feedback_ratings" in sql
+    assert "DELETE FROM knowledge_base" in sql  # re-seeded with title + body embeddings
 
 
 def test_only_databases_built_by_create_all_are_stamped():

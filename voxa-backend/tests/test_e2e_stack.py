@@ -163,6 +163,13 @@ def test_requests_for_a_person_and_complaints_open_tickets(http, admin_headers):
     assert [t["priority"] for t in tickets if t["issue_summary"] == complaint] == ["urgent"]
 
 
+def test_knowledge_questions_find_the_right_article(http):
+    """Only article bodies were embedded, and "bulk" appears only in that article's title."""
+    with _guest_socket(http) as ws:
+        for text in ("Do you offer bulk discounts?", "I want to buy 50 units for my company"):
+            assert re.search(r"20%|25%|volume discount|bulk", _ask(ws, text)["text"], re.IGNORECASE), text
+
+
 def test_unusual_input_is_answered_or_rejected_cleanly(http):
     with _guest_socket(http) as ws:
         for empty in ("", "   "):
