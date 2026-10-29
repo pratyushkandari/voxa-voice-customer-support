@@ -25,8 +25,9 @@ import pytest
 
 BASE_URL = os.environ.get("VOXA_E2E_BASE_URL")
 ADMIN_PASSWORD = os.environ.get("VOXA_E2E_ADMIN_PASSWORD", "adminpassword123")
-# 16 kHz mono WAV of a speaker asking "Where is my order ORD-88412?"
+# 16 kHz mono WAVs: "Where is my order ORD-88412?" and "Can I get a refund for order O R D 1 0 2 9 4?"
 VOICE_FIXTURE = Path(__file__).parent / "fixtures" / "order_question.wav"
+REFUND_FIXTURE = Path(__file__).parent / "fixtures" / "refund_question.wav"
 
 pytestmark = pytest.mark.skipif(not BASE_URL, reason="set VOXA_E2E_BASE_URL to run end-to-end tests")
 
@@ -305,6 +306,23 @@ def test_voice_round_trip(guest_token):
     assert "88412" in frames["transcript"]["text"]
     assert "TRK-99281744US" in "".join(tokens)
     assert len(base64.b64decode(frames["audio_response"]["audio_data"])) > 1000
+
+
+def test_spoken_order_id_split_by_whisper_is_still_found(http):
+    """Whisper writes this speaker's "O R D 1 0 2 9 4" as "Order-O or D10294"."""
+    audio = base64.b64encode(REFUND_FIXTURE.read_bytes()).decode()
+    with _guest_socket(http) as ws:
+        assert _send_audio(ws, audio)["type"] == "transcript"
+        tokens = []
+        while True:
+            frame = json.loads(ws.recv(timeout=60))
+            assert frame["type"] != "error", frame
+            if frame["type"] == "token_chunk":
+                tokens.append(frame.get("token", ""))
+                if frame.get("is_final"):
+                    break
+    reply = "".join(tokens)
+    assert "ORD-10294" in reply and re.search(r"not eligible|ineligible|isn't eligible|outside", reply, re.IGNORECASE)
 
 
 def test_rate_limit_returns_429_with_retry_after(http):

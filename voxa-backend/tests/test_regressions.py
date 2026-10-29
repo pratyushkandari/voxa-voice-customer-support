@@ -433,6 +433,20 @@ def test_router_accepts_order_numbers_written_out(monkeypatch):
         assert not agent_tools.ORDER_ID_PATTERN.search(text), text
 
 
+def test_router_accepts_order_ids_as_whisper_splits_them(monkeypatch):
+    """Spoken 'O R D 1 0 2 9 4' came back as 'Order-O or D10294' or '0RD-10294', so no order was found."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "check_refund_eligibility", AsyncMock(return_value={"found": False, "message": "x"}))
+    monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
+
+    for text in ("Can I get a refund for Order-O or D10294?", "Can I get a refund for Order 0RD-10294?",
+                 "refund for o r d 10294"):
+        asyncio.run(agent_tools.route_query(text, text, None))
+        assert agent_tools.check_refund_eligibility.await_args.args[0] == "ORD-10294", text
+    for text in ("this or that 12345", "for d12345", "a cord 12345 long"):
+        assert not agent_tools.ORDER_ID_PATTERN.search(text), text
+
+
 def test_router_answers_every_order_id_in_a_message(monkeypatch):
     """Only the first of several order IDs was looked up; the others were silently ignored."""
     looked_up = []

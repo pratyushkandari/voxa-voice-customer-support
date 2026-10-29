@@ -21,10 +21,13 @@ from app.guardrails import detect_prompt_injection
 from app.models import Order, SupportTicket
 from app.rag_engine import rag_engine
 
-# Accepts "ORD-88412", "ORD 88412" and "ORD88412" (speech-to-text drops the hyphen), and
-# the way people write it out: "order 88412", "order number 88412", "order #88412". The
-# leading \b keeps words such as "record-12345" from matching.
-ORDER_ID_PATTERN = re.compile(r"\bord(?:er)?(?:\s*(?:number|no\.?|id|#))?[-\s#:]*(\d{4,6})\b", re.IGNORECASE)
+# Accepts "ORD-88412", "ORD 88412" and "ORD88412"; the way people write it out ("order
+# 88412", "order number 88412", "order #88412"); and the ways Whisper splits a spoken
+# "O-R-D" ("or D88412", "0RD-88412"). The leading \b keeps words such as "record-12345"
+# from matching.
+ORDER_ID_PATTERN = re.compile(
+    r"\b(?:order|[o0]\s*r\s*d)(?:\s*(?:number|no\.?|id|#))?[-\s#:]*(\d{4,6})\b", re.IGNORECASE
+)
 MAX_ORDERS_PER_MESSAGE = 3
 
 
