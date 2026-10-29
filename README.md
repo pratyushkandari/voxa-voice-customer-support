@@ -176,11 +176,12 @@ pytest
   - what gets cached
 
 **End-to-end tests against a running stack.** These cover:
-- WebSocket intents and validation
-- the semantic cache
+- orders, refunds and tickets, including order IDs written out ("order number 88412") and several orders in one message
+- knowledge-base answers and the semantic cache
+- odd input (empty, too long, Hindi, emoji, SQL-like) and prompt-injection phrasings
+- malformed frames, rate limits, signup validation, CORS and admin access
+- voice: a round trip (WAV → transcript → reply → MP3), an order ID Whisper splits, silence and broken recordings
 - persistence and the admin API
-- a voice round trip (WAV → transcript → reply → MP3)
-- rate limiting
 
 They pass with or without `GEMINI_API_KEY`. The checks look for the facts Gemini is told to repeat exactly, such as IDs and tracking numbers.
 
@@ -215,6 +216,12 @@ npm run lint && npm run typecheck && npm run build
 k6 run -e WS_URL=ws://localhost:8088/v1/ws/stream voxa-backend/tests/load_test_websockets.js
 ```
 
+**Results.** [docs/TESTING.md](docs/TESTING.md) has the full test matrix and the numbers from the last run. In short:
+- 48 voice recordings (6 voices, clean and with noise): 48/48 correct replies, 2.6–3.8% word error rate, spoken reply after 2.6 s (p50)
+- the right help-centre article first for 21 of 24 questions
+- outages of Redis, PostgreSQL, a worker, edge-tts and Gemini all handled as described under [Failure handling](#failure-handling)
+- one gateway process: about 100 new sessions a second before connections start to queue
+
 ## Project layout
 
 ```
@@ -235,12 +242,12 @@ voxa-backend/
     database.py, models.py, schemas.py, seed_data.py
   migrations/            Alembic environment and versioned schema changes
   workers/               STT, LLM, TTS workers and the supervisor
-  tests/                 pytest suite, voice fixture and k6 script
+  tests/                 pytest suite, voice fixtures and k6 script
   telemetry/             Prometheus scrape config
 voxa-frontend/
   app/                   landing page, chat console, admin console
   components/            voice orb, waveform, telemetry panel, text rendering
-docs/                    architecture and operations runbook
+docs/                    architecture, operations runbook and test results
 .github/workflows/       CI
 docker-compose.yml
 ```
@@ -262,6 +269,7 @@ docker-compose.yml
 | Gemini stream breaks midway | The plain reply is appended to the partial text | A complete answer |
 | Worker crashes mid-task | The supervisor finds entries idle for over 15 s, claims them and re-queues them | Answer delayed by about 15–20 s |
 | Task keeps failing | Moved to the dead-letter queue after 3 attempts | An `error` frame |
+| Silent or unreadable recording | Whisper's voice-activity filter finds no speech, or FFmpeg can't decode it | "No speech was detected" or "could not process that recording" |
 | PostgreSQL down | The router can't fetch facts | An `error` frame asking to try again |
 | Redis down | Breaker and rate limiter let requests through and log; cache lookups count as misses | Typed chat keeps working; voice gets an `error` frame |
 | Traffic spike | Per-user / per-IP sliding window | `429` on REST, an `error` frame on the WebSocket |
@@ -272,8 +280,13 @@ docker-compose.yml
 - **Latency.** Measured locally with `gemini-3.6-flash` at thinking level low:
   - Gemini replies: time to first token was 2.4–5.7 s, with one 10.5 s outlier in direct API calls. Replies are short, so most of that is time to first token.
   - Semantic cache hits: about 0.2 s.
-  - Fallback replies: a few milliseconds.
-- **Spoken order IDs.** Whisper sometimes mishears "ORD" (as "or D", say). The reply then has no order facts and asks for the order ID.
+  - Plain replies: about 12 ms for orders and 25 ms (p50) for knowledge questions, which are embedded first.
+  - Voice: the transcript appears after 0.9 s and the spoken reply starts after 2.6 s (p50, 2–5 s recordings), not counting Gemini.
+- **Spoken order IDs.** The router accepts the ways Whisper was seen to split an ID ("or D88412", "0RD-88412"). A transcript it doesn't recognise gets the general answer, which asks for the order ID.
+- **Retrieval.** 21 of 24 test questions find the right article first. Loosely worded ones that share few words with the article ("Which is better for the gym?") can miss.
+- **Prompt-injection checks are patterns.** They catch the common phrasings. Anything else still reaches Gemini, which is told not to follow instructions in the message and only ever sees owner-checked facts.
+- **Expired tokens on the WebSocket.** An invalid or expired token isn't rejected: the session works anonymously and isn't saved. Guest tokens last 24 hours.
+- **One gateway process** handles about 100 new sessions a second (measured with k6). Beyond that, connections queue; add replicas behind a load balancer.
 - **Voice needs HTTPS** outside `localhost`, because browsers only allow the microphone in secure contexts.
 - **Monitoring.** Prometheus has no dashboards or alert rules yet, and the breaker state lives in Redis rather than in a metric.
 - **Next.js 16.** The frontend is on Next.js 15.5 with React 19. `next lint` is deprecated there and goes away in 16, so moving to 16 means switching to the ESLint CLI.

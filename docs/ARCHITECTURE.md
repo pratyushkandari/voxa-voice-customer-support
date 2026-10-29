@@ -49,7 +49,7 @@ Typed questions are answered in the gateway because nothing in them is CPU-heavy
 
 ## WebSocket protocol
 
-Clients connect to `/v1/ws/stream?token=<JWT>`. The token is optional. Anonymous sessions work, but only authenticated sessions are saved (a conversation belongs to a user) and linked to the tickets they create. The token travels in the query string because browsers can't set headers on a WebSocket handshake; the gateway hides it in its access logs.
+Clients connect to `/v1/ws/stream?token=<JWT>`. The token is optional. Anonymous sessions work, but only authenticated sessions are saved (a conversation belongs to a user) and linked to the tickets they create. An invalid or expired token isn't rejected; the session is simply anonymous. The token travels in the query string because browsers can't set headers on a WebSocket handshake; the gateway hides it in its access logs.
 
 All frames are JSON text frames. A binary frame gets an `error` reply.
 
@@ -91,7 +91,10 @@ All frames are JSON text frames. A binary frame gets an `error` reply.
 
 1. Prompt-injection guardrail: a fixed refusal, never sent to Gemini.
 2. Chargeback or legal threats: opens an urgent ticket.
-3. Order lookup or refund eligibility from PostgreSQL. `ORD-88412`, `ORD 88412` and `ORD88412` are all accepted, because speech-to-text drops the hyphen.
+3. Order lookup or refund eligibility from PostgreSQL, for up to three orders per message. Accepted forms:
+   - `ORD-88412`, `ORD 88412` and `ORD88412`
+   - written out: "order 88412", "order number 88412", "order #88412"
+   - the ways Whisper splits a spoken ID: "or D88412", "0RD-88412"
 4. Request for a person: opens a ticket.
 5. Everything else: the semantic cache, then the top 3 knowledge-base passages with similarity above 0.35.
 
@@ -142,6 +145,13 @@ Delivery is at-least-once:
 
 The LLM worker answers a batch concurrently, because each answer mostly waits on Gemini. It also loads the embedding model before it starts consuming; loading it lazily on the first transcript took about 20 s.
 
+**Speech-to-text settings.** The STT worker runs Faster-Whisper `base` (int8, CPU) with three settings, each added after a measured failure:
+- a voice-activity filter, because on silence Whisper returned its own prompt as the transcript
+- the language fixed to English, because with background noise it once transcribed an Indian-English speaker in Malay
+- a prompt showing the order-ID format, because without it a spoken "ORD-88412" came back as "or D88412"
+
+A recording with no speech gets "No speech was detected".
+
 **Saving voice turns.** The gateway's Pub/Sub forwarder already sees the transcript, the reply tokens and the final frame for each voice request, so it collects them and saves the exchange with the same helper as typed questions. Workers never write conversations.
 
 ## Retrieval and the semantic cache
@@ -160,6 +170,8 @@ knowledge question (PII already masked)
 - `all-MiniLM-L6-v2`, 384 dimensions.
 - L2-normalised, so cosine similarity is a dot product.
 - Encoding runs in a thread so it never blocks the event loop.
+- A question is embedded once. The same vector is used for the cache lookup, the search and the cache entry, because embedding is the slowest step of a plain reply (30–200 ms on the test machine, depending on load).
+- An article is embedded from its title and body together. Titles often hold the words people search for ("Bulk & Business Orders"); with the body alone, "Do you offer bulk discounts?" matched nothing.
 
 **Cache**
 
@@ -169,7 +181,7 @@ knowledge question (PII already masked)
 
 **Knowledge base**
 
-- The `knowledge_base` table is seeded on start-up. Any missing topic is added, so existing databases pick up new documents.
+- The `knowledge_base` table is seeded on start-up. Any missing topic is added, so existing databases pick up new documents. Migration `0003` empties the table once, so articles embedded the old way (body only) are re-embedded on the next start.
 - It's indexed with `USING hnsw (embedding vector_cosine_ops)` (pgvector defaults: `m = 16`, `ef_construction = 64`).
 
 ## Circuit breaker
