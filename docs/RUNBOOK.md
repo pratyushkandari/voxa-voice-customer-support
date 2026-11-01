@@ -7,7 +7,7 @@ How to diagnose and fix the common problems in a Voxa deployment run with `docke
 | What | Target | Where to look |
 | --- | --- | --- |
 | Availability | 99.9% over 30 days | gateway `/health` |
-| Time to first token (p95) | ≤ 6 s (Gemini replies measured 2.4–5.7 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
+| Time to first token (p95) | ≤ 6 s (Gemini replies measured p95 4.3 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
 | Gemini fallback rate | ≤ 5% | `gemini_requests_total{outcome="fallback"}` |
 | End-to-end latency (p95) | tracked, no target yet | `p95_latency_ms` in `/v1/admin/metrics` |
 | Queue backlog | ≤ 100 tasks | `queue_depth` in `/v1/admin/metrics` (pending + lag) |

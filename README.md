@@ -42,6 +42,10 @@ If Gemini isn't configured, fails, times out or runs out of quota, the router's 
 
 ![Landing page](docs/images/landing.png)
 
+A support session. Gemini wrote each reply from the facts the router fetched: an order's status and tracking number, refund eligibility for two orders, and a new ticket.
+
+![Support console](docs/images/chat.png)
+
 The operations console shows live latency, the cache hit ratio, worker heartbeats, the queue backlog and escalation tickets. In this example, a request for a support specialist and a billing complaint each opened an urgent ticket.
 
 ![Operations console](docs/images/admin.png)
@@ -217,7 +221,8 @@ k6 run -e WS_URL=ws://localhost:8088/v1/ws/stream voxa-backend/tests/load_test_w
 ```
 
 **Results.** [docs/TESTING.md](docs/TESTING.md) has the full test matrix and the numbers from the last run. In short:
-- 48 voice recordings (6 voices, clean and with noise): 48/48 correct replies, 2.6–3.8% word error rate, spoken reply after 2.6 s (p50)
+- Gemini: 18 of 18 replies written from the database facts, with nothing invented; first token after 2.9 s (p50)
+- 48 voice recordings (6 voices, clean and with noise): 48/48 correct replies, 2.6–3.8% word error rate, spoken reply after 2.4 s (p50)
 - the right help-centre article first for 21 of 24 questions
 - outages of Redis, PostgreSQL, a worker, edge-tts and Gemini all handled as described under [Failure handling](#failure-handling)
 - one gateway process: about 100 new sessions a second before connections start to queue
@@ -277,11 +282,11 @@ docker-compose.yml
 ## Known limitations
 
 - **Gemini free tier.** On 2026-10-28 the API limited `gemini-3.6-flash` free-tier keys to 5 requests a minute and 20 a day. Past that, replies fall back until the quota resets; the semantic cache helps with repeated questions. Google may also use free-tier prompts to improve its products. PII is masked before the call and the demo data is fictional, but use a paid key for real traffic.
-- **Latency.** Measured locally with `gemini-3.6-flash` at thinking level low:
-  - Gemini replies: time to first token was 2.4–5.7 s, with one 10.5 s outlier in direct API calls. Replies are short, so most of that is time to first token.
-  - Semantic cache hits: about 0.2 s.
+- **Latency.** Measured locally on 2026-11-02 with `gemini-3.6-flash` at thinking level low:
+  - Gemini replies: time to first token p50 2.9 s, p95 4.3 s, slowest 6.0 s (18 calls). Replies are short, so most of the wait is time to first token.
+  - Semantic cache hits: 33–55 ms.
   - Plain replies: about 12 ms for orders and 25 ms (p50) for knowledge questions, which are embedded first.
-  - Voice: the transcript appears after 0.9 s and the spoken reply starts after 2.6 s (p50, 2–5 s recordings), not counting Gemini.
+  - Voice: the transcript appears after 0.9 s and the spoken reply starts after 2.4 s (p50, 2–5 s recordings), not counting Gemini.
 - **Spoken order IDs.** The router accepts the ways Whisper was seen to split an ID ("or D88412", "0RD-88412"). A transcript it doesn't recognise gets the general answer, which asks for the order ID.
 - **Retrieval.** 21 of 24 test questions find the right article first. Loosely worded ones that share few words with the article ("Which is better for the gym?") can miss.
 - **Prompt-injection checks are patterns.** They catch the common phrasings. Anything else still reaches Gemini, which is told not to follow instructions in the message and only ever sees owner-checked facts.
