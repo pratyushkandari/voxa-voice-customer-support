@@ -10,14 +10,9 @@ from sqlalchemy.orm import declarative_base
 
 from app.config import settings
 
-# Connection-pool sizing only applies to real server databases; SQLite (used by some
-# local experiments) rejects these arguments.
-_engine_kwargs = {"echo": False, "pool_pre_ping": True}
-if not settings.DATABASE_URL.startswith("sqlite"):
-    _engine_kwargs.update(pool_size=20, max_overflow=10)
-
-# SQLAlchemy 2.0 async engine with connection pooling
-engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
+# pool_pre_ping replaces connections that died (e.g. after a PostgreSQL restart) before
+# they are handed out, instead of failing the next request.
+engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_size=20, max_overflow=10)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

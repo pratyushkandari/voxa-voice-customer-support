@@ -45,6 +45,33 @@ def test_whisper_is_prompted_with_the_order_id_format():
     assert "ORD-" in WHISPER_PROMPT
 
 
+def test_silence_is_dropped_before_whisper_transcribes():
+    """
+    On a silent recording Whisper wrote its own prompt ("Order IDs look like ORD-88412.")
+    as the transcript, so the user got an answer about an order they never mentioned.
+    """
+    from unittest.mock import MagicMock
+
+    worker = STTWorker(load_model=False)
+    worker.model = MagicMock()
+    worker.model.transcribe.return_value = ([], None)  # the VAD found no speech
+
+    assert worker.transcribe_audio_bytes(b"RIFF") == ""
+    assert worker.model.transcribe.call_args.kwargs["vad_filter"] is True
+
+
+def test_whisper_transcribes_in_english():
+    """With background noise Whisper guessed Malay for an Indian-English voice and lost the question."""
+    from unittest.mock import MagicMock
+
+    worker = STTWorker(load_model=False)
+    worker.model = MagicMock()
+    worker.model.transcribe.return_value = ([], None)
+
+    worker.transcribe_audio_bytes(b"RIFF")
+    assert worker.model.transcribe.call_args.kwargs["language"] == "en"
+
+
 class ScriptedPubSub:
     """Delivers a fixed list of worker events, then stays subscribed like a real one."""
     def __init__(self, events):

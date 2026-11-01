@@ -41,3 +41,28 @@ def test_circuit_breaker_recovery_and_success():
         cb.redis.delete.assert_any_call("circuit:test_service:total")
 
     asyncio.run(_test())
+
+def test_circuit_breaker_probe_gating():
+    async def _test():
+        cb = DistributedCircuitBreaker()
+        cb.redis = AsyncMock()
+
+        # CLOSED: every call goes through
+        cb.redis.get = AsyncMock(return_value="CLOSED")
+        assert await cb.can_execute("gemini") == (True, "CLOSED")
+
+        # OPEN before the recovery timeout: calls are skipped
+        cb.redis.get = AsyncMock(side_effect=["OPEN", "9999999999"])  # last trip in the future
+        assert await cb.can_execute("gemini") == (False, "OPEN")
+
+        # HALF_OPEN: the first caller takes the probe lock
+        cb.redis.get = AsyncMock(return_value="HALF_OPEN")
+        cb.redis.set = AsyncMock(return_value=True)
+        assert await cb.can_execute("gemini") == (True, "HALF_OPEN")
+        cb.redis.set.assert_called_with("circuit:gemini:probe_lock", "1", nx=True, ex=10)
+
+        # HALF_OPEN with the lock already taken: everyone else gets the fallback
+        cb.redis.set = AsyncMock(return_value=False)
+        assert await cb.can_execute("gemini") == (False, "HALF_OPEN")
+
+    asyncio.run(_test())

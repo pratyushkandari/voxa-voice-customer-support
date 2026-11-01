@@ -129,7 +129,9 @@ async def seed_database():
         if new_docs:
             logger.info(f"Embedding {len(new_docs)} knowledge-base documents...")
             for doc in new_docs:
-                embedding_vec = await rag_engine.generate_embedding_async(doc["content"])
+                # The title is embedded with the body: it often holds the words people search
+                # for ("Bulk", "Warranty") that the body doesn't repeat.
+                embedding_vec = await rag_engine.generate_embedding_async(f"{doc['topic']}. {doc['content']}")
                 db.add(KnowledgeBase(topic=doc["topic"], content=doc["content"], embedding=embedding_vec))
             await db.commit()
             

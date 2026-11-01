@@ -180,7 +180,7 @@ services:
       - voxa-network
 
   # =======================================================
-  # 6. Next.js 14 Frontend Web UI
+  # 6. Next.js 15 Frontend Web UI
   # =======================================================
   frontend:
     build:

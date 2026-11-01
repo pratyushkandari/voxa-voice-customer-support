@@ -61,7 +61,7 @@ def test_rag_cosine_similarity():
         mock_result.fetchall.return_value = [mock_row]
         mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        docs = await rag_engine.search_knowledge_base("How do refunds work?", mock_db_session, limit=1)
+        docs = await rag_engine.search_knowledge_base([0.1] * 384, mock_db_session, limit=1)
         
         assert len(docs) == 1
         assert docs[0]["topic"] == "Return Policy"

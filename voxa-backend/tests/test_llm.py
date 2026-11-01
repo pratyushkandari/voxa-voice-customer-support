@@ -4,7 +4,7 @@ Replies written by Gemini, with Gemini replaced by a stub: these tests never use
 import asyncio
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -183,12 +183,47 @@ def test_only_knowledge_answers_written_by_gemini_are_cached(gemini, monkeypatch
     store.assert_not_awaited()  # order replies are user-specific
 
     answer, _ = ask("How long does shipping take?")
-    store.assert_awaited_once_with("How long does shipping take?", answer.text)
+    store.assert_awaited_once_with("How long does shipping take?", ANY, answer.text)
 
     store.reset_mock()
     gemini.chunks, gemini.error = [], ConnectionError("down")
     ask("How long does shipping take?")
     store.assert_not_awaited()  # a fallback reply is never cached
+
+
+def test_a_knowledge_question_is_embedded_once(monkeypatch):
+    """
+    Embedding a question is the slowest step of a knowledge answer, and it was done three times:
+    for the cache lookup, for the knowledge-base search and again to cache the reply.
+    """
+    rag = agent_tools.rag_engine
+
+    async def no_cache_keys(*args, **kwargs):
+        return
+        yield
+
+    class KnowledgeBaseSession(DummySession):
+        async def __aenter__(self):
+            row = SimpleNamespace(topic="Shipping", content="Standard shipping takes 3 to 5 business days.",
+                                  similarity=0.8)
+            return SimpleNamespace(execute=AsyncMock(return_value=MagicMock(fetchall=lambda: [row])))
+
+    async def gemini_reply(prompt):
+        yield "Shipping takes 3 to 5 business days."
+
+    embed = MagicMock(return_value=[1.0] + [0.0] * 383)
+    monkeypatch.setattr(rag, "generate_embedding", embed)
+    monkeypatch.setattr(rag, "redis", AsyncMock(scan_iter=MagicMock(side_effect=no_cache_keys)))
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", KnowledgeBaseSession)
+    monkeypatch.setattr(llm, "gemini_chunks", gemini_reply)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(llm.circuit_breaker, "redis", FakeRedis())
+
+    answer, _ = ask("How long does shipping take?")
+
+    assert answer.text == "Shipping takes 3 to 5 business days." and answer.fallback is False
+    rag.redis.set.assert_awaited_once()  # the reply was cached...
+    assert embed.call_count == 1         # ...with the vector computed for the lookup
 
 
 def test_injection_attempts_and_cache_hits_skip_gemini(gemini, monkeypatch):

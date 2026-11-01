@@ -21,7 +21,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
 // identity of an open support session.
 const ADMIN_TOKEN_KEY = 'voxa_admin_token';
 const REFRESH_INTERVAL_MS = 10_000;
-// Time-to-first-token target from docs/RUNBOOK.md. Gemini replies measured 2.4-5.7 s;
+// Time-to-first-token target from docs/RUNBOOK.md. Gemini replies measured p95 4.3 s;
 // cache hits and fallback replies are far below it.
 const TTFT_TARGET_MS = 6000;
 

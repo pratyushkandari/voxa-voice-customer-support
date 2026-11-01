@@ -11,7 +11,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +21,14 @@ from app.guardrails import detect_prompt_injection
 from app.models import Order, SupportTicket
 from app.rag_engine import rag_engine
 
-# Accepts "ORD-88412", "ORD 88412" and "ORD88412": speech-to-text writes spoken order IDs
-# without the hyphen. The leading \b keeps words such as "record-12345" from matching.
-ORDER_ID_PATTERN = re.compile(r"\bord[-\s]?(\d{4,6})\b", re.IGNORECASE)
+# Accepts "ORD-88412", "ORD 88412" and "ORD88412"; the way people write it out ("order
+# 88412", "order number 88412", "order #88412"); and the ways Whisper splits a spoken
+# "O-R-D" ("or D88412", "0RD-88412"). The leading \b keeps words such as "record-12345"
+# from matching.
+ORDER_ID_PATTERN = re.compile(
+    r"\b(?:order|[o0]\s*r\s*d)(?:\s*(?:number|no\.?|id|#))?[-\s#:]*(\d{4,6})\b", re.IGNORECASE
+)
+MAX_ORDERS_PER_MESSAGE = 3
 
 
 async def _find_visible_order(order_id: str, db: AsyncSession, requester_id: Optional[uuid.UUID]) -> Optional[Order]:
@@ -142,6 +147,31 @@ class RoutedQuery:
     facts: str = ""
     cacheable: bool = False  # user-independent knowledge answer, may go in the semantic cache
     cache_hit: bool = False
+    embedding: Optional[List[float]] = None  # the question's vector, reused to cache the reply
+
+
+async def _status_answer(order_id: str, db: AsyncSession, user_id: Optional[uuid.UUID]) -> RoutedQuery:
+    tool_result = await lookup_order(order_id, db, user_id)
+    if not tool_result["found"]:
+        return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
+    return RoutedQuery(
+        fallback=(f"Order {tool_result['order_id']} ({tool_result['item_name']}) is {tool_result['status']}. "
+                  f"Tracking number: {tool_result['tracking_number']}."),
+        facts=(f"Order {tool_result['order_id']}: {tool_result['item_name']}, ordered {tool_result['order_date'][:10]}, "
+               f"status {tool_result['status']}, tracking number {tool_result['tracking_number']}."),
+    )
+
+
+async def _refund_answer(order_id: str, db: AsyncSession, user_id: Optional[uuid.UUID]) -> RoutedQuery:
+    tool_result = await check_refund_eligibility(order_id, db, user_id)
+    if not tool_result["found"]:
+        return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
+    verdict = "is eligible" if tool_result["eligible"] else "is not eligible"
+    return RoutedQuery(
+        fallback=f"Order {tool_result['order_id']} {verdict} for a refund: {tool_result['reason']}",
+        facts=(f"Order {tool_result['order_id']} was bought {tool_result['days_since_purchase']} days ago. "
+               f"Refunds are allowed within 30 days of purchase, so it {verdict} for a refund."),
+    )
 
 
 async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.UUID]) -> RoutedQuery:
@@ -156,7 +186,8 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
     cacheable; order lookups and tickets are user-specific. Raises on database errors.
     """
     prompt_lower = clean_query.lower()
-    order_match = ORDER_ID_PATTERN.search(clean_query)
+    # Every order the message mentions, in order, without repeats.
+    order_ids = list(dict.fromkeys(f"ORD-{n}" for n in ORDER_ID_PATTERN.findall(clean_query)))
 
     # 1. Prompt injection, checked on the raw text: the sanitised copy has already had
     #    the injection phrase replaced by a placeholder. Never forwarded to Gemini.
@@ -173,28 +204,15 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
             facts=f"Opened urgent support ticket {ref} for this complaint. A support lead will contact the customer.",
         )
 
-    # 3. Order status and refund eligibility
-    if order_match:
-        order_id = f"ORD-{order_match.group(1)}"
+    # 3. Order status and refund eligibility, for up to three orders
+    if order_ids:
+        answer_one = _refund_answer if ("refund" in prompt_lower or "return" in prompt_lower) else _status_answer
         async with AsyncSessionLocal() as db_session:
-            if "refund" in prompt_lower or "return" in prompt_lower:
-                tool_result = await check_refund_eligibility(order_id, db_session, user_id)
-                if not tool_result["found"]:
-                    return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
-                verdict = "is eligible" if tool_result["eligible"] else "is not eligible"
-                return RoutedQuery(
-                    fallback=f"Order {tool_result['order_id']} {verdict} for a refund: {tool_result['reason']}",
-                    facts=(f"Order {tool_result['order_id']} was bought {tool_result['days_since_purchase']} days ago. "
-                           f"Refunds are allowed within 30 days of purchase, so it {verdict} for a refund."),
-                )
-            tool_result = await lookup_order(order_id, db_session, user_id)
-        if not tool_result["found"]:
-            return RoutedQuery(tool_result["message"], facts=f"No order {order_id} was found for this customer.")
+            answers = [await answer_one(order_id, db_session, user_id)
+                       for order_id in order_ids[:MAX_ORDERS_PER_MESSAGE]]
         return RoutedQuery(
-            fallback=(f"Order {tool_result['order_id']} ({tool_result['item_name']}) is {tool_result['status']}. "
-                      f"Tracking number: {tool_result['tracking_number']}."),
-            facts=(f"Order {tool_result['order_id']}: {tool_result['item_name']}, ordered {tool_result['order_date'][:10]}, "
-                   f"status {tool_result['status']}, tracking number {tool_result['tracking_number']}."),
+            fallback=" ".join(a.fallback for a in answers),
+            facts="\n".join(a.facts for a in answers),
         )
 
     # 4. Request for a person
@@ -207,22 +225,27 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
             facts=f"Opened support ticket {ref}. A support specialist will contact the customer.",
         )
 
-    # 5. Everything else: semantic cache, then the knowledge base
-    cached = await rag_engine.check_semantic_cache(clean_query)
+    # 5. Everything else: semantic cache, then the knowledge base. Embedding the question
+    #    is the slowest step here (30-200 ms on the test machine, depending on CPU load),
+    #    so it is done once and the vector reused for both lookups and for caching the reply.
+    query_vec = await rag_engine.generate_embedding_async(clean_query)
+    cached = await rag_engine.check_semantic_cache(query_vec)
     if cached:
         return RoutedQuery(cached, cache_hit=True)
 
     async with AsyncSessionLocal() as db_session:
-        rag_docs = await rag_engine.search_knowledge_base(clean_query, db_session, limit=3)
+        rag_docs = await rag_engine.search_knowledge_base(query_vec, db_session, limit=3)
     passages = [doc for doc in rag_docs if doc.get("similarity", 0) > 0.35]
     if not passages:
         return RoutedQuery(
             GENERAL_HELP,
             facts=f"No help-centre article matches this message. What Voxa support can do: {GENERAL_HELP}",
             cacheable=True,
+            embedding=query_vec,
         )
     return RoutedQuery(
         fallback=f"From our {passages[0]['topic']} policy: {passages[0]['content']}",
         facts="\n\n".join(f"{doc['topic']}: {doc['content']}" for doc in passages),
         cacheable=True,
+        embedding=query_vec,
     )

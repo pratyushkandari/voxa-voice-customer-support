@@ -56,14 +56,14 @@ class RAGEngine:
         """Non-blocking wrapper around ``generate_embedding`` for use on the event loop."""
         return await asyncio.to_thread(self.generate_embedding, text_input)
 
-    async def search_knowledge_base(self, query_text: str, db: AsyncSession, limit: int = 3) -> List[Dict[str, str]]:
+    async def search_knowledge_base(self, query_vec: List[float], db: AsyncSession, limit: int = 3) -> List[Dict[str, str]]:
         """
         Executes approximate nearest neighbor (ANN) vector search on PostgreSQL pgvector
         using the HNSW index with the cosine distance operator (<=>).
-        Returns up to ``limit`` dicts of {topic, content, similarity} ordered best-first.
+        ``query_vec`` is the question's embedding. Returns up to ``limit`` dicts of
+        {topic, content, similarity} ordered best-first.
         """
-        embedding = await self.generate_embedding_async(query_text)
-        embedding_str = f"[{','.join(map(str, embedding))}]"
+        embedding_str = f"[{','.join(map(str, query_vec))}]"
 
         sql = text("""
             SELECT topic, content, 1 - (embedding <=> CAST(:query_vector AS vector)) AS similarity
@@ -89,15 +89,15 @@ class RAGEngine:
         query_hash = hashlib.sha256(query_text.strip().lower().encode("utf-8")).hexdigest()[:16]
         return f"semcache:{query_hash}"
 
-    async def check_semantic_cache(self, query_text: str, threshold: float = 0.92) -> Optional[str]:
+    async def check_semantic_cache(self, query_vec: List[float], threshold: float = 0.92) -> Optional[str]:
         """
-        Returns a cached response whose query embedding has cosine similarity >= threshold,
-        or None. Uses incremental SCAN (never the blocking KEYS command) bounded to
-        SEMANTIC_CACHE_SCAN_LIMIT keys, and a single MGET for the candidate payloads.
-        Any Redis/model error degrades to a cache miss rather than failing the request.
+        Returns a cached response whose question embedding has cosine similarity >= threshold
+        with ``query_vec``, or None. Uses incremental SCAN (never the blocking KEYS command)
+        bounded to SEMANTIC_CACHE_SCAN_LIMIT keys, and a single MGET for the candidate
+        payloads. Any Redis error degrades to a cache miss rather than failing the request.
         """
         try:
-            query_vec = np.array(await self.generate_embedding_async(query_text), dtype=np.float32)
+            query_vec = np.array(query_vec, dtype=np.float32)
 
             keys = []
             async for key in self.redis.scan_iter(match="semcache:*", count=SEMANTIC_CACHE_SCAN_LIMIT):
@@ -129,13 +129,12 @@ class RAGEngine:
             logger.warning(f"Semantic cache lookup error: {e}")
             return None
 
-    async def store_semantic_cache(self, query_text: str, response_text: str):
+    async def store_semantic_cache(self, query_text: str, query_vec: List[float], response_text: str):
         """
-        Stores the query embedding and response in Redis for semantic caching.
+        Stores the question, its embedding and the response in Redis for semantic caching.
         Only call this for generic, user-independent answers (never order or ticket data).
         """
         try:
-            query_vec = await self.generate_embedding_async(query_text)
             data = {
                 "query": query_text,
                 "vector": query_vec,

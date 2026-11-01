@@ -79,7 +79,6 @@ def test_rate_limiter_fails_open_when_redis_is_down():
         limiter.lua_script = UnreachableRedis().evalsha
         limiter.redis = UnreachableRedis()
         assert await limiter.check_rate_limit("ip:1.2.3.4") is True
-        assert await limiter.check_idempotency("key", "ip:1.2.3.4") is True
 
     asyncio.run(_test())
 
@@ -136,6 +135,38 @@ def test_supervisor_dead_letters_recycled_poison_message():
         streams = [c.args[0] for c in redis.xadd.call_args_list]
         assert streams == [settings.STREAM_DLQ]
         redis.xack.assert_awaited_once_with("stream:llm:inference", "llm_group", "2001-0")
+
+    asyncio.run(_test())
+
+
+def test_supervisor_requeues_stranded_entries_and_dead_letters_exhausted_ones():
+    """redis-py reports idle time and delivery count as time_since_delivered / times_delivered."""
+    async def _test():
+        supervisor = WorkerSupervisor()
+        supervisor.streams_to_monitor = [("stream:audio:transcribe", "stt_group")]
+        redis = AsyncMock()
+        redis.xpending = AsyncMock(return_value={"pending": 2})
+        redis.xpending_range = AsyncMock(return_value=[
+            {"message_id": "1001-0", "time_since_delivered": 20000, "times_delivered": 1},  # retry
+            {"message_id": "1002-0", "time_since_delivered": 25000, "times_delivered": 3},  # give up
+        ])
+        redis.xclaim = AsyncMock(side_effect=[
+            [("stream:audio:transcribe", {"payload": "audio_1"})],
+            [("stream:audio:transcribe", {"payload": "poison_audio"})],
+        ])
+
+        await supervisor.scan_and_reclaim_stranded_tasks(redis)
+
+        xadd_calls = [c.args for c in redis.xadd.call_args_list]
+        assert ("stream:audio:transcribe", {
+            "payload": "audio_1", "retry_count": "2", "reclaimed_from_msg_id": "1001-0"
+        }) in xadd_calls
+        dlq_payloads = [payload for stream, payload in xadd_calls if stream == settings.STREAM_DLQ]
+        assert len(dlq_payloads) == 1 and dlq_payloads[0]["payload"] == "poison_audio"
+        redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1001-0")
+        redis.xack.assert_any_call("stream:audio:transcribe", "stt_group", "1002-0")
+        # Every XADD is length-capped so streams cannot grow without bound
+        assert all(c.kwargs.get("maxlen") for c in redis.xadd.call_args_list)
 
     asyncio.run(_test())
 
@@ -289,6 +320,11 @@ def test_tampered_token_is_rejected():
     assert user_id_from_token(forged) is None
 
 
+def test_expired_token_is_rejected():
+    token = create_access_token({"sub": str(uuid.uuid4()), "role": "user"}, expires_delta=timedelta(seconds=-1))
+    assert decode_access_token(token) is None and user_id_from_token(token) is None
+
+
 def test_non_uuid_subject_does_not_crash():
     """A token whose 'sub' is not a UUID used to raise ValueError (HTTP 500)."""
     assert user_id_from_token(create_access_token({"sub": "user-12345"})) is None
@@ -359,6 +395,19 @@ def test_router_word_boundaries(monkeypatch):
     assert agent_tools.ORDER_ID_PATTERN.search("Where is ord-88412?")
 
 
+def test_router_legal_keywords_use_word_boundaries(monkeypatch):
+    """Substring matching made 'tissue'/'issue' open legal escalations."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "escalate_to_human", AsyncMock(return_value={"ticket_id": "T1"}))
+    monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
+
+    def answer(text):
+        return asyncio.run(agent_tools.route_query(text, text, None)).fallback
+
+    assert answer("Can you pass me a tissue for this issue?") == "GENERIC"
+    assert "urgent ticket #T1" in answer("I will sue your company unless you refund me")
+
+
 def test_router_understands_order_ids_without_hyphen(monkeypatch):
     """Whisper transcribes a spoken 'ORD-88412' as 'ORD88412', so voice order lookups never matched."""
     monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
@@ -369,6 +418,57 @@ def test_router_understands_order_ids_without_hyphen(monkeypatch):
     asyncio.run(agent_tools.route_query("refund for ord 10294", "refund for ord 10294", None))
     assert agent_tools.lookup_order.await_args.args[0] == "ORD-88412"
     assert agent_tools.check_refund_eligibility.await_args.args[0] == "ORD-10294"
+
+
+def test_router_accepts_order_numbers_written_out(monkeypatch):
+    """'order 88412' and 'order number 88412' got a help article instead of the order."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "lookup_order", AsyncMock(return_value={"found": False, "message": "x"}))
+
+    for text in ("where is my order 88412", "order number 88412?", "order no. 88412", "Order #88412",
+                 "order ID: 88412"):
+        asyncio.run(agent_tools.route_query(text, text, None))
+        assert agent_tools.lookup_order.await_args.args[0] == "ORD-88412", text
+    for text in ("I ordered 12345 units", "a bulk order for 20000 units", "my order 2 days ago"):
+        assert not agent_tools.ORDER_ID_PATTERN.search(text), text
+
+
+def test_router_accepts_order_ids_as_whisper_splits_them(monkeypatch):
+    """Spoken 'O R D 1 0 2 9 4' came back as 'Order-O or D10294' or '0RD-10294', so no order was found."""
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "check_refund_eligibility", AsyncMock(return_value={"found": False, "message": "x"}))
+    monkeypatch.setattr(agent_tools.rag_engine, "check_semantic_cache", AsyncMock(return_value="GENERIC"))
+
+    for text in ("Can I get a refund for Order-O or D10294?", "Can I get a refund for Order 0RD-10294?",
+                 "refund for o r d 10294"):
+        asyncio.run(agent_tools.route_query(text, text, None))
+        assert agent_tools.check_refund_eligibility.await_args.args[0] == "ORD-10294", text
+    for text in ("this or that 12345", "for d12345", "a cord 12345 long"):
+        assert not agent_tools.ORDER_ID_PATTERN.search(text), text
+
+
+def test_router_answers_every_order_id_in_a_message(monkeypatch):
+    """Only the first of several order IDs was looked up; the others were silently ignored."""
+    looked_up = []
+
+    async def lookup(order_id, db, requester_id=None):
+        looked_up.append(order_id)
+        return {"found": True, "order_id": order_id, "item_name": "Earbuds", "order_date": "2026-10-23T00:00:00",
+                "status": "Shipped", "tracking_number": f"TRK-{order_id[4:]}"}
+
+    monkeypatch.setattr(agent_tools, "AsyncSessionLocal", DummySession)
+    monkeypatch.setattr(agent_tools, "lookup_order", lookup)
+
+    text = "Where are ORD-88412 and ORD-99120?"
+    routed = asyncio.run(agent_tools.route_query(text, text, None))
+    assert "TRK-88412" in routed.fallback and "TRK-99120" in routed.fallback
+    assert "TRK-88412" in routed.facts and "TRK-99120" in routed.facts
+
+    # Repeats are looked up once, and at most three orders per message.
+    looked_up.clear()
+    text = "ORD-11111, ORD-11111, ORD-22222, ORD-33333 and ORD-44444"
+    asyncio.run(agent_tools.route_query(text, text, None))
+    assert looked_up == ["ORD-11111", "ORD-22222", "ORD-33333"]
 
 
 def test_router_blocks_injection_even_after_sanitising():

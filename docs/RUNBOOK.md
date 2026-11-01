@@ -7,7 +7,7 @@ How to diagnose and fix the common problems in a Voxa deployment run with `docke
 | What | Target | Where to look |
 | --- | --- | --- |
 | Availability | 99.9% over 30 days | gateway `/health` |
-| Time to first token (p95) | ≤ 6 s (Gemini replies measured 2.4–5.7 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
+| Time to first token (p95) | ≤ 6 s (Gemini replies measured p95 4.3 s) | per-answer `ttft_ms`, `avg_ttft_ms` in `/v1/admin/metrics` |
 | Gemini fallback rate | ≤ 5% | `gemini_requests_total{outcome="fallback"}` |
 | End-to-end latency (p95) | tracked, no target yet | `p95_latency_ms` in `/v1/admin/metrics` |
 | Queue backlog | ≤ 100 tasks | `queue_depth` in `/v1/admin/metrics` (pending + lag) |
@@ -66,7 +66,7 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
    redis-cli --scan --pattern 'worker:heartbeat:*'
    docker stats voxa-stt-worker voxa-llm-worker
    ```
-2. No transcript: check `docker logs voxa-stt-worker` for `Transcribed session` lines or FFmpeg decode errors.
+2. No transcript: check `docker logs voxa-stt-worker` for `Transcribed session` lines or FFmpeg decode errors. "No speech was detected" means the voice-activity filter found no speech in the clip: usually a muted or very quiet microphone.
 3. Text but no audio: the TTS worker needs outbound internet access for edge-tts. Check `docker logs voxa-tts-worker` for `TTS synthesis failed`.
 4. Add workers. Compose can't scale a service that has a fixed `container_name`, so remove that line from the service first, then:
    ```bash
@@ -93,7 +93,7 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
    ```
 3. Look for CPU throttling on the gateway (it computes embeddings) and on the STT workers.
 4. Confirm the STT worker logged `Loading Faster-Whisper [...] with INT8 quantization` at start-up.
-5. Add gateway replicas (one uvicorn worker each) behind the load balancer.
+5. Add gateway replicas (one uvicorn worker each) behind the load balancer. One gateway process handled about 100 new sessions a second in the k6 test; past that, connect times grow (see [TESTING.md](TESTING.md#load)).
 
 ## Backups, secrets and deployment
 
@@ -114,4 +114,5 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
 - **Upgrading:** `git pull` then `docker compose up --build -d`.
   - The `voxa-migrate` container applies any new migrations before the gateway and LLM worker start. Check it with `docker logs voxa-migrate`; if it fails, they don't start.
   - New knowledge-base documents are added on gateway start; existing rows are left alone.
+  - Migration `0003` empties the knowledge base so the gateway re-embeds every article (title and body) on its next start; this takes a few seconds. Questions answered in between get the general reply.
 - **Rolling back a migration:** back up first, then `docker compose run --rm migrate alembic downgrade -1`. `docker compose run --rm migrate alembic current` shows the applied revision.

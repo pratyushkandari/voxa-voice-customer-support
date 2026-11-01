@@ -1,12 +1,12 @@
 """
-Redis-backed sliding-window-log rate limiter and idempotency-key guard.
+Redis-backed sliding-window-log rate limiter.
 
 Algorithm: each request is recorded as a member of a per-identity sorted set scored by
 its timestamp. A Lua script atomically evicts entries older than the window, counts the
 rest, and admits the request only if the count is below the limit, so concurrent gateway
 replicas share one consistent budget without race conditions.
 
-Both checks fail open: if Redis is unreachable the request is admitted (and a warning is
+The check fails open: if Redis is unreachable the request is admitted (and a warning is
 logged) on REST and WebSocket alike, because a Redis blip must not take the whole support
 service offline. The cost is that limits are not enforced while Redis is down.
 """
@@ -71,19 +71,6 @@ class RateLimiter:
             return True
         return bool(allowed)
 
-    async def check_idempotency(self, idempotency_key: str, user_id: str, ttl: int = 60) -> bool:
-        """
-        Checks if an X-Idempotency-Key has already been processed.
-        Returns True if this is a NEW request, False if it is a duplicate retry.
-        """
-        key = f"idempotency:{user_id}:{idempotency_key}"
-        try:
-            is_new = await self.redis.set(key, "PROCESSING", nx=True, ex=ttl)
-        except RedisError as e:
-            logger.warning(f"Idempotency store unavailable, admitting request: {e}")
-            return True
-        return bool(is_new)
-
 
 rate_limiter = RateLimiter()
 
@@ -113,22 +100,9 @@ async def rate_limit_dependency(request: Request):
         token = auth_header.split(" ", 1)[1]
     identity = client_identity(request.client.host if request.client else None, request.headers, token)
 
-    # 1. Rate limit first, so a rejected (429) request does not burn its idempotency key
-    #    and can be retried with the same key after Retry-After.
-    allowed = await rate_limiter.check_rate_limit(identity)
-    if not allowed:
+    if not await rate_limiter.check_rate_limit(identity):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded. Please slow down your requests.",
             headers={"Retry-After": "60"}
         )
-
-    # 2. Idempotency check if header present
-    idempotency_key = request.headers.get("X-Idempotency-Key")
-    if idempotency_key:
-        is_first_attempt = await rate_limiter.check_idempotency(idempotency_key, identity)
-        if not is_first_attempt:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Duplicate request detected. Request is already processing or completed."
-            )
