@@ -235,3 +235,41 @@ def test_injection_attempts_and_cache_hits_skip_gemini(gemini, monkeypatch):
     assert sent == ["Cached reply."] and answer.cache_hit is True
 
     assert gemini.prompts == []
+
+
+def test_an_empty_gemini_reply_sends_the_fallback_reply(gemini):
+    gemini.chunks = []
+
+    answer, sent = reply("q", RoutedQuery("Plain reply.", facts="facts"))
+
+    assert sent == ["Plain reply."] and answer.fallback is True
+
+
+def test_a_client_leaving_mid_reply_is_not_counted_as_a_gemini_failure(gemini, monkeypatch):
+    gemini.chunks = ["Your order ", "has shipped."]
+    record_failure = AsyncMock()
+    monkeypatch.setattr(llm.circuit_breaker, "record_failure", record_failure)
+
+    async def send(token):
+        raise ConnectionResetError("socket closed")
+
+    with pytest.raises(ConnectionResetError):
+        asyncio.run(llm.write_reply("q", RoutedQuery("Plain reply.", facts="facts"), send))
+    record_failure.assert_not_awaited()
+
+
+def test_gemini_chunks_yields_only_the_text_pieces(monkeypatch):
+    async def stream():
+        for text in ("Your order ", None, "", "has shipped."):
+            yield SimpleNamespace(text=text)
+
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=stream())
+    monkeypatch.setattr(llm, "_gemini", lambda: client)
+
+    async def collect():
+        return [piece async for piece in llm.gemini_chunks("prompt")]
+
+    assert asyncio.run(collect()) == ["Your order ", "has shipped."]
+    kwargs = client.aio.models.generate_content_stream.await_args.kwargs
+    assert kwargs["model"] == settings.GEMINI_MODEL and kwargs["config"] is llm.GENERATION_CONFIG
