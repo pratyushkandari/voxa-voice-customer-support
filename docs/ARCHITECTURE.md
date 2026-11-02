@@ -220,3 +220,29 @@ Metrics are process-local, so the gateway runs one uvicorn worker per container 
 - cache hit ratio
 - live workers (`worker:heartbeat:*`, 10 s TTL)
 - queue backlog (pending plus lag per consumer group)
+
+## Tuned values
+
+Each value below is set in one place. Docs, comments and the frontend state the same value. "Decision" means it was chosen, not tuned on data; the measurements are in [TESTING.md](TESTING.md).
+
+| Value | Set in | Rule | Where it came from |
+| --- | --- | --- | --- |
+| Gemini timeout: 10 s | `GEMINI_TIMEOUT_SEC`, `app/llm.py` | No complete reply within 10 s → the plain reply is sent | Decision. Measured time to first token: p50 2.9 s, p95 4.3 s, slowest 6.0 s |
+| Thinking level: low; at most 1,024 output tokens | `GENERATION_CONFIG`, `app/llm.py` | | Decision |
+| Semantic cache: cosine ≥ 0.92 | `check_semantic_cache`, `app/rag_engine.py` | Only a near-identical question reuses a cached reply | Decision |
+| Cache entry lifetime: 1 hour; lookup scans at most 50 keys | `cache_ttl`, `SEMANTIC_CACHE_SCAN_LIMIT`, `app/rag_engine.py` | | Decision |
+| Knowledge-base cut-off: similarity > 0.35, top 3 passages | `route_query`, `app/agent_tools.py` | Below the cut-off the general help reply is used | Decision. Measured: off-topic questions score at most 0.12, and the right article is above the cut-off for 21 of 24 test questions (the three misses score 0.24–0.33) |
+| Article embedding: title + body | `seed_data.py` | | Measurement: the right article comes first for 21 of 24 test questions, against 18 with the body only |
+| Orders per message: 3 | `MAX_ORDERS_PER_MESSAGE`, `app/agent_tools.py` | Further order IDs in the same message are ignored | Decision |
+| Refund window: 30 days | `check_refund_eligibility`, `app/agent_tools.py` | Eligible if bought 30 or fewer days ago | Business rule, the same as the Return Policy article |
+| Circuit breaker: ≥ 50% failures with ≥ 4 calls in 10 s; 15 s cooldown; 10 s probe lease | `DistributedCircuitBreaker` defaults, `app/circuit_breaker.py` | See [Circuit breaker](#circuit-breaker) | Decision. Measured with an invalid key: opens after 4 failed calls, probes after 15 s |
+| Rate limit: 30 requests a minute per user, or per IP for anonymous calls | `RATE_LIMIT_REQUESTS_PER_MINUTE` (`app/config.py`, `.env.example`) | REST gets `429`, the WebSocket an `error` frame | Decision |
+| Typed question: at most 2,000 characters | `WS_MAX_TEXT_QUERY_CHARS`; `MAX_MESSAGE_CHARS` in the console | | Decision |
+| Recording: at most 4,000,000 base64 characters (about 3 MB); the console stops at 30 s | `WS_MAX_AUDIO_CHUNK_B64_CHARS`; `MAX_AUDIO_B64_CHARS`, `MAX_RECORDING_MS` in the console | | Decision. A 28 s, 16 kHz WAV is about 0.9 MB |
+| Worker attempts: 3, then the dead-letter queue | `MAX_ATTEMPTS` in the workers, `max_attempts` in the supervisor | | Decision |
+| Crash recovery: entries idle over 15 s are reclaimed, checked every 5 s; busy workers re-claim their entries every 5 s | `worker_supervisor.py`, `CLAIM_REFRESH_SEC` in `app/queue_manager.py` | The re-claim interval must stay below 15 s | Decision. Measured: a task left by a crashed worker was answered about 20 s after the worker restarted |
+| Stream length cap: about 10,000 entries | `STREAM_MAXLEN`, `app/config.py` | | Decision |
+| Token lifetime: 24 hours | `ACCESS_TOKEN_EXPIRE_MINUTES` (`app/config.py`, `.env.example`) | | Decision |
+| Speech-to-text: Whisper `base`, int8, beam size 2, voice-activity filter, English, ID-format prompt | `STT_MODEL_SIZE`, `workers/stt_worker.py` | | The filter, the language and the prompt each fixed a measured failure (see [Speech-to-text settings](#workers-and-delivery-guarantees)); the model size is a decision for a CPU-only VM |
+| Time-to-first-token target: 6 s | `TTFT_TARGET_MS` in the admin console; [RUNBOOK targets](RUNBOOK.md#targets) | Average TTFT at or under the target shows as met | Decision, above the measured p95 of 4.3 s |
+| Load test: connect p95 < 200 ms (threshold); first token < 200 ms (check) | `voxa-backend/tests/load_test_websockets.js` | | Targets. Measured with one gateway process: the connect threshold held at 100 virtual users, not at 200 or 500; 99.8% of first tokens were within 200 ms at 100 users |

@@ -26,6 +26,7 @@ from app.telemetry import GEMINI_REQUEST_DURATION, GEMINI_REQUESTS
 logger = logging.getLogger("voxa.llm")
 
 BREAKER_KEY = "gemini"
+# A decision: measured time to first token was p50 2.9 s, p95 4.3 s, slowest 6.0 s (docs/TESTING.md).
 GEMINI_TIMEOUT_SEC = 10.0
 
 SYSTEM_PROMPT = (
