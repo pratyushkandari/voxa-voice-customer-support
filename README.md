@@ -155,11 +155,11 @@ Rate-limited endpoints return `429` with `Retry-After: 60`. The default limit is
 ## Testing
 
 **CI.** GitHub Actions runs on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
-- the backend unit tests
+- the backend unit tests, with coverage; the JUnit report and coverage are uploaded as the `backend-test-report` artifact
 - the migrations against a real pgvector PostgreSQL (upgrade, downgrade to empty, upgrade again, then `alembic check` against the models)
 - frontend lint, typecheck and production build
 
-The end-to-end tests below need the full stack, so they run locally.
+The end-to-end and browser tests below need the full stack, so they run locally.
 
 **Backend unit tests.** These are self-contained: no Redis, PostgreSQL, Gemini or model downloads. Install the CPU-only torch first, or sentence-transformers pulls the much larger CUDA build.
 
@@ -167,7 +167,7 @@ The end-to-end tests below need the full stack, so they run locally.
 cd voxa-backend
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-pytest
+pytest                                     # add --cov=app --cov=workers for coverage
 ```
 
 - `tests/conftest.py` swaps the embedding model for a small deterministic stand-in, and stubs Faster-Whisper and edge-tts when they aren't installed.
@@ -212,6 +212,13 @@ alembic check                                              # models and database
 cd voxa-frontend
 npm ci
 npm run lint && npm run typecheck && npm run build
+```
+
+**Browser tests.** Playwright drives the installed Chrome against a running stack: every page, the guest session and admin sign-in, form validation, the chat and voice flows, and the error messages users see. Run them before the backend end-to-end tests or a minute after, because the backend suite's rate-limit test uses up the per-IP login budget for 60 s.
+
+```bash
+cd voxa-frontend
+VOXA_APP_URL=http://localhost:3000 npm run test:e2e
 ```
 
 **Load test.** Raise `RATE_LIMIT_REQUESTS_PER_MINUTE` on the gateway first, because every virtual user comes from the same IP. With a Gemini key, each message is also a Gemini call against your quota.

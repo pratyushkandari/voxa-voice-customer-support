@@ -92,7 +92,8 @@ class RAGEngine:
     async def check_semantic_cache(self, query_vec: List[float], threshold: float = 0.92) -> Optional[str]:
         """
         Returns a cached response whose question embedding has cosine similarity >= threshold
-        with ``query_vec``, or None. Uses incremental SCAN (never the blocking KEYS command)
+        with ``query_vec``, or None. The 0.92 default is a decision, not tuned on data: only a
+        near-identical question should reuse another question's answer. Uses incremental SCAN (never the blocking KEYS command)
         bounded to SEMANTIC_CACHE_SCAN_LIMIT keys, and a single MGET for the candidate
         payloads. Any Redis error degrades to a cache miss rather than failing the request.
         """

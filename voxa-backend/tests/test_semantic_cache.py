@@ -81,6 +81,32 @@ def test_store_semantic_cache_persists_embedding_and_response():
     asyncio.run(_test())
 
 
+def test_redis_errors_count_as_a_cache_miss_and_never_fail_the_question():
+    async def _test():
+        engine = RAGEngine(redis_url="redis://localhost:6379/0")
+        engine.redis = AsyncMock()
+        engine.redis.scan_iter = MagicMock(side_effect=ConnectionError("redis down"))
+        engine.redis.set = AsyncMock(side_effect=ConnectionError("redis down"))
+        vec = [1.0] + [0.0] * 383
+
+        assert await engine.check_semantic_cache(vec) is None
+        await engine.store_semantic_cache("How long does shipping take?", vec, "3 to 5 days.")  # must not raise
+
+    asyncio.run(_test())
+
+
+def test_entries_that_expire_between_scan_and_mget_are_skipped():
+    async def _test():
+        vec = [1.0] + [0.0] * 383
+        engine = _engine_with_cache([{"query": "q", "vector": vec, "response": "Cached."}])
+        engine.redis.mget = AsyncMock(return_value=[None, json.dumps({"query": "q", "vector": vec, "response": "Cached."})])
+        engine.redis.scan_iter = MagicMock(side_effect=_async_iter(["semcache:gone", "semcache:0"]))
+
+        assert await engine.check_semantic_cache(vec) == "Cached."
+
+    asyncio.run(_test())
+
+
 def test_store_then_lookup_round_trip_hits_cache():
     """A stored answer must be retrievable by the same question (end-to-end through the encoder)."""
     async def _test():

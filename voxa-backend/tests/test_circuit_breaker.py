@@ -66,3 +66,32 @@ def test_circuit_breaker_probe_gating():
         assert await cb.can_execute("gemini") == (False, "HALF_OPEN")
 
     asyncio.run(_test())
+
+def test_failed_probe_reopens_the_breaker_with_a_fresh_cooldown():
+    async def _test():
+        from tests.fakes import FakeRedis
+
+        cb = DistributedCircuitBreaker()
+        cb.redis = FakeRedis()
+        cb.redis.data.update({"circuit:gemini:state": "HALF_OPEN", "circuit:gemini:last_trip": "0",
+                              "circuit:gemini:probe_lock": "1"})
+
+        await cb.record_failure("gemini")
+
+        assert cb.redis.data["circuit:gemini:state"] == "OPEN"
+        assert float(cb.redis.data["circuit:gemini:last_trip"]) > 0  # the 15 s cooldown starts again
+        assert "circuit:gemini:probe_lock" not in cb.redis.data
+        assert await cb.can_execute("gemini") == (False, "OPEN")
+
+    asyncio.run(_test())
+
+def test_half_open_lets_the_call_through_if_redis_cannot_arbitrate_the_probe():
+    async def _test():
+        cb = DistributedCircuitBreaker()
+        cb.redis = AsyncMock()
+        cb.redis.get = AsyncMock(return_value="HALF_OPEN")
+        cb.redis.set = AsyncMock(side_effect=ConnectionError("redis down"))
+
+        assert await cb.can_execute("gemini") == (True, "HALF_OPEN")
+
+    asyncio.run(_test())

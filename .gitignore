@@ -15,6 +15,12 @@ __pycache__/
 htmlcov/
 *.egg-info/
 
+# Test reports (CI uploads them as artifacts)
+reports/
+coverage.xml
+test-results/
+playwright-report/
+
 # Environments
 .env
 .env.local

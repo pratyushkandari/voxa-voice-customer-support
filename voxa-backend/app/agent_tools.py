@@ -235,6 +235,8 @@ async def route_query(raw_query: str, clean_query: str, user_id: Optional[uuid.U
 
     async with AsyncSessionLocal() as db_session:
         rag_docs = await rag_engine.search_knowledge_base(query_vec, db_session, limit=3)
+    # The 0.35 cut-off is a decision. With the current articles, off-topic questions score at
+    # most 0.12 and the right article is above it for 21 of 24 test questions (docs/TESTING.md).
     passages = [doc for doc in rag_docs if doc.get("similarity", 0) > 0.35]
     if not passages:
         return RoutedQuery(

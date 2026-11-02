@@ -15,6 +15,9 @@ export const options = {
     { duration: '1m', target: 500 },  // Peak load: 500 concurrent users
     { duration: '30s', target: 0 },   // Ramp down
   ],
+  // Targets, not measured guarantees. With one gateway process the connect threshold held at
+  // 100 virtual users and failed at 200 and 500, and 99.8% of first tokens arrived within
+  // 200 ms at 100 users (docs/TESTING.md).
   thresholds: {
     'ws_connecting': ['p(95)<200'], // 95% of connections establish in <200ms
   },

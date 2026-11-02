@@ -2,8 +2,29 @@ import asyncio
 import uuid
 import datetime
 from unittest.mock import AsyncMock, MagicMock
-from app.agent_tools import check_refund_eligibility, lookup_order
+from app.agent_tools import check_refund_eligibility, escalate_to_human, lookup_order
+from app.models import SupportTicket
 from app.rag_engine import rag_engine
+
+
+def test_escalate_to_human_saves_an_open_ticket():
+    async def _test():
+        session = MagicMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+        user_id = uuid.uuid4()
+
+        result = await escalate_to_human("My lawyer will contact you", "urgent", user_id, session)
+
+        ticket = session.add.call_args.args[0]
+        assert isinstance(ticket, SupportTicket)
+        assert (ticket.issue_summary, ticket.priority, ticket.status, ticket.user_id) == (
+            "My lawyer will contact you", "urgent", "open", user_id)
+        session.commit.assert_awaited_once()
+        assert result["ticket_created"] and result["ticket_id"] == str(ticket.id) and result["priority"] == "urgent"
+
+    asyncio.run(_test())
+
 
 def test_lookup_order_tool():
     async def _test():

@@ -42,7 +42,15 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
       - name: Unit tests
-        run: pytest -q
+        run: >-
+          pytest -q --junitxml=reports/junit.xml
+          --cov=app --cov=workers --cov-report=term --cov-report=xml:reports/coverage.xml
+      - name: Upload test report and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: voxa-backend/reports/
       - name: Migrations apply cleanly and match the models
         run: |
           python -m app.migrate
