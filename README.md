@@ -158,6 +158,7 @@ Rate-limited endpoints return `429` with `Retry-After: 60`. The default limit is
 - the backend unit tests, with coverage; the JUnit report and coverage are uploaded as the `backend-test-report` artifact
 - the migrations against a real pgvector PostgreSQL (upgrade, downgrade to empty, upgrade again, then `alembic check` against the models)
 - frontend lint, typecheck and production build
+- on `main`, once those pass: a deploy to the server over SSH with `scripts/deploy.sh` (see [docs/RUNBOOK.md](docs/RUNBOOK.md#backups-secrets-and-deployment))
 
 The end-to-end and browser tests below need the full stack, so they run locally.
 

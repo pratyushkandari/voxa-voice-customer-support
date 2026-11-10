@@ -111,7 +111,26 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
   - PostgreSQL, Redis and Prometheus listen on `127.0.0.1`, and the LLM worker's metrics port is only reachable on the Compose network.
   - On a cloud VM, reach them through an SSH tunnel and keep those ports closed in the firewall.
   - Voice input on a public address needs HTTPS in front of the frontend and gateway.
-- **Upgrading:** `git pull` then `docker compose up --build -d`.
+- **Deploying:** `bash scripts/deploy.sh` from the repository root on the server. It:
+  - takes a lock, so only one deploy runs at a time
+  - resets the checkout to `origin/main`, and stops there if that commit is already deployed and healthy (`--force` rebuilds anyway)
+  - saves a database backup to `~/backups` (the last 5 are kept)
+  - stops the app containers and removes their images and the build cache, because a 30 GB disk can't hold the old and new images together
+  - builds the images one at a time (4 GB of RAM can't build them in parallel)
+  - starts everything, then waits for `/health`
+
+  The app is down from the moment it stops until the gateway is healthy again. PostgreSQL and Redis keep running. If a build fails, the app stays stopped: fix the cause and run `bash scripts/deploy.sh --force`.
+- **Automatic deploys:** the `deploy` job in CI runs the script on every push to `main`, after the backend and frontend jobs pass. It needs three repository secrets:
+  - `DEPLOY_HOST`: the server's IP or DNS name
+  - `DEPLOY_SSH_KEY`: a private key used only for deploys
+  - `DEPLOY_KNOWN_HOSTS`: the output of `ssh-keyscan -t ed25519 <host>`, so CI connects only to that server
+
+  Without `DEPLOY_HOST` the job does nothing.
+- **The deploy key** goes in the server user's `~/.ssh/authorized_keys` with a forced command, so it can only deploy, even if the secret leaks:
+  ```
+  command="cd ~/voxa-voice-customer-support && git fetch -q origin main && git reset -q --hard origin/main && bash scripts/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA... ci-deploy
+  ```
+- **Upgrading by hand:** `bash scripts/deploy.sh`, or `git pull` then `docker compose up --build -d`.
   - The `voxa-migrate` container applies any new migrations before the gateway and LLM worker start. Check it with `docker logs voxa-migrate`; if it fails, they don't start.
   - New knowledge-base documents are added on gateway start; existing rows are left alone.
   - Migration `0003` empties the knowledge base so the gateway re-embeds every article (title and body) on its next start; this takes a few seconds. Questions answered in between get the general reply.
