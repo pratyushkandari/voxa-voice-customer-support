@@ -120,16 +120,14 @@ docker exec -it voxa-postgres pg_isready -U postgres -d voxa_db
   - starts everything, then waits for `/health`
 
   The app is down from the moment it stops until the gateway is healthy again. PostgreSQL and Redis keep running. If a build fails, the app stays stopped: fix the cause and run `bash scripts/deploy.sh --force`.
-- **Automatic deploys:** the `deploy` job in CI runs the script on every push to `main`, after the backend and frontend jobs pass. It needs three repository secrets:
-  - `DEPLOY_HOST`: the server's IP or DNS name
-  - `DEPLOY_SSH_KEY`: a private key used only for deploys
-  - `DEPLOY_KNOWN_HOSTS`: the output of `ssh-keyscan -t ed25519 <host>`, so CI connects only to that server
-
-  Without `DEPLOY_HOST` the job does nothing.
-- **The deploy key** goes in the server user's `~/.ssh/authorized_keys` with a forced command, so it can only deploy, even if the secret leaks:
+- **Automatic deploys:** the server checks `main` every 5 minutes and deploys any new commit. It needs no GitHub secrets. The cron entry (add it with `crontab -e`):
   ```
-  command="cd ~/voxa-voice-customer-support && git fetch -q origin main && git reset -q --hard origin/main && bash scripts/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA... ci-deploy
+  */5 * * * * cd ~/voxa-voice-customer-support && git fetch -q origin main && git reset -q --hard origin/main && bash scripts/deploy.sh >> ~/deploy.log 2>&1
   ```
+  - It deploys whatever is on `main` and doesn't wait for CI, so merge only pull requests whose checks pass.
+  - `~/deploy.log` is only written to while a deploy runs; checks that find nothing new stay silent.
+  - A commit that failed to deploy isn't retried. Push a fix, or run `bash scripts/deploy.sh --force`.
+  - To stop automatic deploys, remove the line with `crontab -e`.
 - **Upgrading by hand:** `bash scripts/deploy.sh`, or `git pull` then `docker compose up --build -d`.
   - The `voxa-migrate` container applies any new migrations before the gateway and LLM worker start. Check it with `docker logs voxa-migrate`; if it fails, they don't start.
   - New knowledge-base documents are added on gateway start; existing rows are left alone.
