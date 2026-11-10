@@ -67,9 +67,16 @@ main() {
   trap 'echo "$commit" > "$failed_file"; echo "The deploy failed and the app is stopped. Fix the cause, then run: bash scripts/deploy.sh --force"' ERR
 
   # One image at a time: building them in parallel runs a 4 GB VM out of memory.
+  # Each build is tried 3 times, because a dropped package download fails a build now and then.
   for service in $app_services; do
     echo "Building $service"
-    docker compose build --quiet "$service"
+    local attempt
+    for attempt in 1 2 3; do
+      if docker compose build --quiet "$service"; then break; fi
+      if [[ $attempt == 3 ]]; then false; fi
+      echo "Building $service failed; retrying in 30 seconds"
+      sleep 30
+    done
   done
   docker compose up -d --remove-orphans
   docker builder prune -af > /dev/null
